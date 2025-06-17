@@ -1,0 +1,14 @@
+*.log
+.DS_Store
+Thumbs.db
+/backend/node_modules/
+/frontend/node_modules/
+/frontend/.pnpm-store/
+/backend/.env
+/frontend/.env
+/frontend/.env.*
+/frontend/dist/
+/backend/whatsapp_auth_info/
+/backend/public/uploads/
+npm-debug.log*
+node_modules
