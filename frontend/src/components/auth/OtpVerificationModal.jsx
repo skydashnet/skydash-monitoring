@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, KeyRound, Loader2 } from 'lucide-react';
 
 const OtpVerificationModal = ({ isOpen, onClose, onSuccess, whatsappNumber, onResend }) => {
@@ -6,7 +6,6 @@ const OtpVerificationModal = ({ isOpen, onClose, onSuccess, whatsappNumber, onRe
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [cooldown, setCooldown] = useState(0);
-
     useEffect(() => {
         let timer;
         if (cooldown > 0) {
@@ -52,7 +51,6 @@ const OtpVerificationModal = ({ isOpen, onClose, onSuccess, whatsappNumber, onRe
     };
 
     if (!isOpen) return null;
-
     return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg w-full max-w-sm text-center p-6">
@@ -64,7 +62,6 @@ const OtpVerificationModal = ({ isOpen, onClose, onSuccess, whatsappNumber, onRe
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                     Kami telah mengirimkan kode OTP 6 digit ke nomor <strong>{whatsappNumber}</strong>. Silakan masukkan di bawah.
                 </p>
-
                 <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                     <input 
                         type="text" value={otp} onChange={(e) => setOtp(e.target.value)}
@@ -76,7 +73,6 @@ const OtpVerificationModal = ({ isOpen, onClose, onSuccess, whatsappNumber, onRe
                         {loading ? <Loader2 className="mx-auto animate-spin" /> : 'Verifikasi & Daftar'}
                     </button>
                 </form>
-
                 <div className="mt-4 text-xs text-gray-400">
                     Tidak menerima kode?{' '}
                     <button 
