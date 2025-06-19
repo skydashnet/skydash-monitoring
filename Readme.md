@@ -87,7 +87,7 @@ CREATE TABLE `users` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `username` varchar(50) NOT NULL,
   `display_name` varchar(100) NOT NULL,
-  `password_hash` varchar(255) NULL, -- Dibuat NULL untuk bisa login dengan Google
+  `password_hash` varchar(255) NULL,
   `profile_picture_url` varchar(255) DEFAULT NULL,
   `email` varchar(255) DEFAULT NULL UNIQUE,
   `google_id` varchar(255) DEFAULT NULL UNIQUE,
@@ -104,6 +104,7 @@ CREATE TABLE `workspaces` (
   `owner_id` int(11) NOT NULL,
   `active_device_id` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `whatsapp_bot_enabled` BOOLEAN NOT NULL DEFAULT FALSE,
   PRIMARY KEY (`id`),
   KEY `owner_id` (`owner_id`),
   CONSTRAINT `workspaces_ibfk_1` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
@@ -230,6 +231,16 @@ CREATE TABLE ip_pools (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   -- Pastikan setiap profil dalam satu workspace hanya punya satu pool IP
   UNIQUE KEY `workspace_profile_unique` (`workspace_id`, `profile_name`),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+
+CREATE TABLE alarms (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  workspace_id INT NOT NULL,
+  type VARCHAR(50) NOT NULL, -- e.g., 'PPPOE_TRAFFIC'
+  threshold_mbps INT NOT NULL,
+  status VARCHAR(20) DEFAULT 'ACTIVE', -- 'ACTIVE' or 'MUTED'
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 );
 ```
