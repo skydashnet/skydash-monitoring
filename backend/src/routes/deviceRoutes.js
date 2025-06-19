@@ -12,5 +12,8 @@ router.route('/')
 router.route('/:id')
     .put(deviceController.updateDevice)
     .delete(deviceController.deleteDevice);
+    
+router.get('/capabilities', deviceController.getDeviceCapabilities);
+
 
 module.exports = router;

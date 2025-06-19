@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { runCommandForWorkspace } = require('../utils/apiConnection');
 
 exports.listDevices = async (req, res) => {
     const workspaceId = req.user.workspace_id;
@@ -74,5 +75,31 @@ exports.deleteDevice = async (req, res) => {
         res.status(200).json({ message: 'Perangkat berhasil dihapus.' });
     } catch (error) {
         res.status(500).json({ message: 'Gagal menghapus perangkat.', error: error.message });
+    }
+};
+
+exports.getDeviceCapabilities = async (req, res) => {
+    const workspaceId = req.user.workspace_id;
+    if (!workspaceId) {
+        return res.json({ hasPppoe: false, hasHotspot: false });
+    }
+    
+    try {
+        const allInterfaces = await runCommandForWorkspace(workspaceId, '/interface/print').catch(() => []);
+        const hasPppoe = allInterfaces.some(iface => iface.type.startsWith('pppoe'));
+        const hotspotCheck = await runCommandForWorkspace(workspaceId, '/ip/hotspot/profile/print', ['=count-only='])
+            .catch(() => null);
+        const hasHotspot = hotspotCheck !== null;
+        const capabilities = {
+            hasPppoe,
+            hasHotspot
+        };
+        console.log(`[Capability Check] Workspace ${workspaceId}:`, capabilities);
+        res.json(capabilities);
+
+    } catch (error) {
+        // Jika koneksi ke perangkat gagal total, anggap semua fitur tidak ada
+        console.error("CAPABILITIES CHECK ERROR:", error.message);
+        res.json({ hasPppoe: false, hasHotspot: false });
     }
 };

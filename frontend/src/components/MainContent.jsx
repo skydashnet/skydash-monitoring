@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect } from 'react';
+import React, { useMemo, useRef } from 'react';
 import EtherChart from './EtherChart';
 import { useMikrotik } from '../hooks/useMikrotik';
 
@@ -35,26 +35,44 @@ export default function MainContent() {
     return Array.from(activeInterfaces).sort();
   }, [traffic]);
 
+  const interfaceCount = etherInterfaces.length;
+  if (interfaceCount === 0) {
+    return (
+        <div className="flex-grow flex items-center justify-center bg-gray-100 dark:bg-gray-800/50 rounded-xl p-10">
+            <p className="text-center text-gray-500 dark:text-gray-400">Menunggu data traffic interface ethernet...</p>
+        </div>
+    );
+  }
+  if (interfaceCount === 1) {
+    return (
+        <div className="flex-grow flex justify-center items-start p-4">
+            <div className="w-full max-w-2xl">
+                <EtherChart key={etherInterfaces[0]} etherId={etherInterfaces[0]} />
+            </div>
+        </div>
+    );
+  }
+  if (interfaceCount === 2) {
+    return (
+        <div className="flex-grow flex flex-col gap-4">
+            <EtherChart key={etherInterfaces[0]} etherId={etherInterfaces[0]} />
+            <EtherChart key={etherInterfaces[1]} etherId={etherInterfaces[1]} />
+        </div>
+    );
+  }
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow overflow-auto">
-      {etherInterfaces.length > 0 ? (
-        etherInterfaces.map((etherId, index) => {
-          const isOddCount = etherInterfaces.length % 2 !== 0;
-          const isLastItem = index === etherInterfaces.length - 1;
-
-          return (
-            <EtherChart
-              key={etherId}
-              etherId={etherId}
-              className={isOddCount && isLastItem ? 'md:col-span-2' : ''}
-            />
-          );
-        })
-      ) : (
-        <div className="md:col-span-2 text-center text-gray-500 dark:text-gray-400 p-10">
-          <p>Menunggu data traffic interface ethernet...</p>
-        </div>
-      )}
+      {etherInterfaces.map((etherId, index) => {
+        const isOddCount = interfaceCount % 2 !== 0;
+        const isLastItem = index === interfaceCount - 1;
+        return (
+          <EtherChart
+            key={etherId}
+            etherId={etherId}
+            className={isOddCount && isLastItem ? 'md:col-span-2' : ''}
+          />
+        );
+      })}
     </div>
   );
 }

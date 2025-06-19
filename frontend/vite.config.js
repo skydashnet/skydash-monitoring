@@ -1,8 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  
   build: {
     minify: 'terser',
     terserOptions: {
@@ -12,21 +14,23 @@ export default defineConfig({
       },
     },
   },
+
   server: {
+    host: '0.0.0.0', 
+    allowedHosts: [ 'alinos-dashboard.my.id' ],
     proxy: {
       '/api': {
-        target: 'http://192.168.1.2:3001',
+        target: 'http://localhost:3001',
         changeOrigin: true,
-        secure: false,
       },
       '/public': {
-        target: 'http://192.168.1.2:3001',
+        target: 'http://localhost:3001',
         changeOrigin: true,
-        secure: false,
+      },
+      '/ws': {
+        target: 'ws://localhost:3001',
+        ws: true,
       },
     },
-    allowedHosts: ['alinos-dashboard.my.id'],
-    host: true 
   },
-  server
 })

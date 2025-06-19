@@ -23,14 +23,16 @@ const AddPppoeSecretModal = ({ isOpen, onClose, onSuccess }) => {
     }, [isOpen]);
 
     const getNextIpForProfile = useCallback(async (profileName) => {
-        if (!profileName) return;
-        try {
-            const response = await fetch(`/api/pppoe/next-ip?profile=${encodeURIComponent(profileName)}`);
-            const data = await response.json();
-            setFormData(prev => ({ ...prev, localAddress: data.localAddress, remoteAddress: data.remoteAddress }));
-        } catch (error) {
-            console.error("Gagal mendapatkan IP otomatis:", error);
-        }
+    if (!profileName) return;
+    try {
+        const response = await fetch(`/api/pppoe/next-ip?profile=${encodeURIComponent(profileName)}`, { credentials: 'include' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        setFormData(prev => ({ ...prev, localAddress: data.localAddress, remoteAddress: data.remoteAddress }));
+    } catch (error) {
+        console.error("Gagal mendapatkan IP otomatis:", error);
+        alert(`Error saat alokasi IP: ${error.message}`);
+    }
     }, []);
 
     useEffect(() => {

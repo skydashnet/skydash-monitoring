@@ -219,6 +219,19 @@ CREATE TABLE `whatsapp_updates` (
   UNIQUE KEY `user_id` (`user_id`),
   CONSTRAINT `whatsapp_updates_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE ip_pools (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  workspace_id INT NOT NULL,
+  profile_name VARCHAR(255) NOT NULL,
+  ip_start VARCHAR(45) NOT NULL,
+  ip_end VARCHAR(45) NOT NULL,
+  gateway VARCHAR(45) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  -- Pastikan setiap profil dalam satu workspace hanya punya satu pool IP
+  UNIQUE KEY `workspace_profile_unique` (`workspace_id`, `profile_name`),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
 ```
 
 

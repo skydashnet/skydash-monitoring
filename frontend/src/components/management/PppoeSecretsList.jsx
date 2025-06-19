@@ -43,15 +43,18 @@ const PppoeSecretsList = ({ refreshTrigger }) => {
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('');
     const { traffic } = useMikrotik();
-
     const fetchSecrets = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await fetch('/api/pppoe/secrets');
+            const response = await fetch('/api/pppoe/secrets', { credentials: 'include' });
             const data = await response.json();
-            setSecrets(data);
+            if (!response.ok) {
+                throw new Error(data.message || "Gagal memuat daftar secrets.");
+            }
+            setSecrets(Array.isArray(data) ? data : []);
         } catch (error) {
             console.error("Gagal mengambil daftar secrets:", error);
+            setSecrets([]);
         } finally {
             setLoading(false);
         }
@@ -60,7 +63,10 @@ const PppoeSecretsList = ({ refreshTrigger }) => {
     useEffect(() => {
         fetchSecrets();
     }, [refreshTrigger, fetchSecrets]);
+
     const combinedData = useMemo(() => {
+        if (!Array.isArray(secrets)) return [];
+        
         const activeUsersMap = new Map();
         Object.entries(traffic).forEach(([interfaceName, trafficData]) => {
             if (interfaceName.startsWith('<pppoe-')) {

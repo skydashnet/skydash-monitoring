@@ -8,6 +8,7 @@ import ActiveSessionsCard from '../components/settings/ActiveSessionsCard';
 import DeleteAccountCard from '../components/settings/DeleteAccountCard';
 import UpdateWhatsappCard from '../components/settings/UpdateWhatsappCard';
 import DeviceManagementCard from '../components/settings/DeviceManagementCard';
+import WhatsappBotCard from '../components/settings/WhatsappBotCard';
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -58,6 +59,7 @@ export default function SettingsPage() {
       <section className="mb-12">
         <h2 className="text-xl font-semibold text-blue-700 dark:text-blue-400 mb-4">Keamanan & Akun</h2>
         <div className="space-y-6">
+          <WhatsappBotCard />
           <UpdateWhatsappCard />
           <UpdatePasswordCard />
           <ActiveSessionsCard />

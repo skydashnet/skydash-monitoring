@@ -1,6 +1,6 @@
 import React from 'react';
 
-const SummaryCard = ({ title, count, icon, colorClass }) => {
+const SummaryCard = React.memo(({ title, count, icon, colorClass }) => {
   return (
     <div className={`p-6 rounded-2xl shadow-lg transition-all duration-300 hover:-translate-y-1 ${colorClass}`}>
       <div className="flex justify-between items-start">
@@ -14,6 +14,6 @@ const SummaryCard = ({ title, count, icon, colorClass }) => {
       </div>
     </div>
   );
-};
+});
 
 export default SummaryCard;
