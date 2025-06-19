@@ -14,7 +14,6 @@ const LoginPage = () => {
     const [loading, setLoading] = useState(false);
     const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
     const [loginPayload, setLoginPayload] = useState({ userId: null, whatsappNumber: '' });
-    
     const navigate = useNavigate();
     const { setAuthUser } = useAuth();
 
@@ -31,7 +30,6 @@ const LoginPage = () => {
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || 'Gagal login');
-            
             setLoginPayload({ userId: data.userId, whatsappNumber: data.whatsappNumber });
             setIsOtpModalOpen(true);
         } catch (err) {
@@ -43,12 +41,17 @@ const LoginPage = () => {
 
     return (
         <>
-            <div className="min-h-screen w-full lg:grid lg:grid-cols-2">
-                <div className="relative flex items-center justify-center p-6 sm:p-12 bg-white dark:bg-gray-900">
-                    <div className="absolute top-6 right-6"> <ThemeSwitch /> </div>
+            <div className="min-h-screen w-full flex flex-row bg-white dark:bg-gray-900">
+                <div className="hidden lg:flex lg:w-1/2 items-center justify-center bg-gradient-to-br from-purple-600 to-blue-600 p-12">
+                    <SkydashLogo variant="neon" size="large" />
+                </div>
+                <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative">
+                    <div className="absolute top-6 right-6">
+                        <ThemeSwitch />
+                    </div>
                     <div className="w-full max-w-sm">
-                        <div className="text-left mb-8">
-                            <h1 className="text-3xl lg:text-4xl font-bold dark:text-white">Selamat Datang</h1>
+                        <div className="text-center lg:text-left mb-8">
+                            <h1 className="text-3xl lg:text-4xl font-bold text-gray-800 dark:text-white">Selamat Datang Kembali</h1>
                             <p className="text-gray-500 dark:text-gray-400 mt-2">Silakan masuk ke akun Anda.</p>
                         </div>
                         <form onSubmit={handleSubmit} className="space-y-4">
@@ -63,25 +66,17 @@ const LoginPage = () => {
                             </div>
                             {error && <p className="text-red-500 text-sm text-center">{error}</p>}
                             <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 p-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg disabled:opacity-50">
-                                {loading ? <Loader2 className="animate-spin" /> : <LogIn size={20} />}
+                                {loading ? <Loader2 className="animate-spin"/> : <LogIn size={20} />}
                                 <span>{loading ? 'Meminta OTP...' : 'Masuk'}</span>
                             </button>
                         </form>
-                        <p className="text-center mt-6 text-sm dark text-gray-300">
+                        <p className="text-center mt-6 text-sm text-gray-600 dark:text-gray-400">
                             Belum punya akun? <Link to="/register" className="font-semibold text-blue-500 hover:underline">Daftar di sini</Link>
                         </p>
                     </div>
                 </div>
-                <div className="hidden lg:flex items-center justify-center bg-gray-950 p-12">
-                    <SkydashLogo variant="neon" size="large" />
-                </div>
             </div>
-            <LoginOtpModal 
-                isOpen={isOtpModalOpen}
-                onClose={() => setIsOtpModalOpen(false)}
-                userId={loginPayload.userId}
-                whatsappNumber={loginPayload.whatsappNumber}
-            />
+            <LoginOtpModal isOpen={isOtpModalOpen} onClose={() => setIsOtpModalOpen(false)} userId={loginPayload.userId} whatsappNumber={loginPayload.whatsappNumber} />
         </>
     );
 };

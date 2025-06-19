@@ -56,22 +56,17 @@ const RegisterPage = () => {
 
     return (
         <>
-            <div className="min-h-screen w-full bg-white dark:bg-gray-900 lg:grid lg:grid-cols-2">
-                <div className="hidden lg:flex items-center justify-center p-8 bg-gradient-to-br from-green-500 to-teal-500">
+            <div className="min-h-screen w-full flex flex-row bg-white dark:bg-gray-900">
+                <div className="hidden lg:flex lg:w-1/2 items-center justify-center bg-gradient-to-br from-green-500 to-teal-500 p-12">
                     <SkydashLogo variant="matrix" size="large" />
                 </div>
-                
-                <div className="relative flex items-center justify-center p-6 sm:p-12">
-                    <div className="absolute top-6 right-6">
-                        <ThemeSwitch />
-                    </div>
-
+                <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative">
+                    <div className="absolute top-6 right-6"><ThemeSwitch /></div>
                     <div className="w-full max-w-sm">
-                        <div className="text-left mb-8">
+                        <div className="text-center lg:text-left mb-8">
                             <h1 className="text-3xl lg:text-4xl font-bold text-gray-800 dark:text-white">Buat Akun Baru</h1>
                             <p className="text-gray-500 dark:text-gray-400 mt-2">Selamat datang! Silakan isi data Anda.</p>
                         </div>
-
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div className="relative">
                                 <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -96,7 +91,6 @@ const RegisterPage = () => {
                                     {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                                 </button>
                             </div>
-
                             {error && <p className="text-red-500 text-sm text-center">{error}</p>}
                             {success && <p className="text-green-500 text-sm text-center">{success}</p>}
 
@@ -111,6 +105,12 @@ const RegisterPage = () => {
                     </div>
                 </div>
             </div>
+            <OtpVerificationModal 
+                isOpen={isOtpModalOpen}
+                onClose={() => setIsOtpModalOpen(false)}
+                onSuccess={handleRegistrationSuccess}
+                whatsappNumber={formData.whatsapp}
+            />
         </>
     );
 };
