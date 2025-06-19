@@ -16,5 +16,6 @@ router.post('/odp/:odpId/assign-user', pppoeController.assignUserToOdp);
 router.get('/odp/:id/connected-users', pppoeController.getConnectedUsers);
 router.put('/secrets/:id/status', pppoeController.setSecretStatus);
 router.post('/active/:id/kick', pppoeController.kickActiveUser);
+router.get('/management-data', pppoeController.getManagementPageData);
 
 module.exports = router;

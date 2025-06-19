@@ -4,7 +4,6 @@ import { Power, PowerOff, ArrowUp, ArrowDown, Search } from 'lucide-react';
 
 const useSortableData = (items, config = null) => {
     const [sortConfig, setSortConfig] = useState(config);
-
     const sortedItems = useMemo(() => {
         let sortableItems = [...items];
         if (sortConfig !== null) {
@@ -34,35 +33,12 @@ const useSortableData = (items, config = null) => {
         }
         setSortConfig({ key, direction });
     };
-
     return { items: sortedItems, requestSort, sortConfig };
 };
 
 const PppoeSecretsList = ({ refreshTrigger }) => {
-    const [secrets, setSecrets] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [filter, setFilter] = useState('');
     const { traffic } = useMikrotik();
-    const fetchSecrets = useCallback(async () => {
-        setLoading(true);
-        try {
-            const response = await fetch('/api/pppoe/secrets', { credentials: 'include' });
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message || "Gagal memuat daftar secrets.");
-            }
-            setSecrets(Array.isArray(data) ? data : []);
-        } catch (error) {
-            console.error("Gagal mengambil daftar secrets:", error);
-            setSecrets([]);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchSecrets();
-    }, [refreshTrigger, fetchSecrets]);
+    const [filter, setFilter] = useState('');
 
     const combinedData = useMemo(() => {
         if (!Array.isArray(secrets)) return [];

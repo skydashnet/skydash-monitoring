@@ -179,3 +179,26 @@ exports.kickActiveUser = async (req, res) => {
         res.status(500).json({ message: 'Gagal memutuskan koneksi.', error: error.message });
     }
 };
+
+exports.getManagementPageData = async (req, res) => {
+    const workspaceId = req.user.workspace_id;
+    if (!workspaceId) {
+        return res.json({ summary: { total: 0, active: 0, inactive: 0 }, secrets: [] });
+    }
+    try {
+        const [secrets, active] = await Promise.all([
+            runCommandForWorkspace(workspaceId, '/ppp/secret/print'),
+            runCommandForWorkspace(workspaceId, '/ppp/active/print', ['?service=pppoe'])
+        ]);
+
+        const summary = {
+            total: secrets.length,
+            active: active.length,
+            inactive: secrets.length - active.length
+        };
+        
+        res.json({ summary, secrets });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

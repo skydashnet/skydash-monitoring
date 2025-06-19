@@ -2,34 +2,48 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useMikrotik } from '../context/MikrotikProvider';
 import ConfigPrompt from '../components/common/ConfigPrompt';
 import FeatureNotAvailable from '../components/common/FeatureNotAvailable';
-import { Users, UserCheck, UserX, Plus, Settings } from 'lucide-react';
+import { Users, UserCheck, UserX, Plus } from 'lucide-react';
 import SummaryCard from '../components/management/SummaryCard';
 import AddPppoeSecretModal from '../components/management/AddPppoeSecretModal';
 import PppoeSecretsList from '../components/management/PppoeSecretsList';
 import InactiveSecretsModal from '../components/management/InactiveSecretsModal';
-import IpPoolManagerModal from '../components/management/IpPoolManagerModal';
 
 const ManagementPage = () => {
     const { deviceStatus } = useMikrotik();
     const [summary, setSummary] = useState({ total: 0, active: 0, inactive: 0 });
+    const [secrets, setSecrets] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isInactiveModalOpen, setIsInactiveModalOpen] = useState(false);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
-    const [isIpPoolModalOpen, setIsIpPoolModalOpen] = useState(false);
 
-    const fetchSummary = useCallback(async () => {
-        if (!deviceStatus.isConfigured || !deviceStatus.capabilities?.hasPppoe) return;
+    // --- FUNGSI FETCH DIPERBARUI TOTAL ---
+    const fetchManagementData = useCallback(async () => {
+        if (!deviceStatus.isConfigured || !deviceStatus.capabilities?.hasPppoe) {
+            setLoading(false);
+            return;
+        }
+        setLoading(true);
         try {
-            const response = await fetch('/api/pppoe/summary', { credentials: 'include' });
-            if (!response.ok) throw new Error('Gagal memuat data ringkasan');
+            const response = await fetch('/api/pppoe/management-data', { credentials: 'include' });
+            if (!response.ok) throw new Error('Gagal memuat data manajemen');
             const data = await response.json();
-            setSummary(data);
-        } catch (error) { console.error(error); }
+            
+            // Set kedua state dari satu panggilan API
+            setSummary(data.summary || { total: 0, active: 0, inactive: 0 });
+            setSecrets(data.secrets || []);
+
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
     }, [deviceStatus]);
+    // ------------------------------------
 
     useEffect(() => {
-        fetchSummary();
-    }, [fetchSummary, refreshTrigger]);
+        fetchManagementData();
+    }, [fetchManagementData, refreshTrigger]);
 
     const handleSuccessAdd = () => {
         setIsAddModalOpen(false);
@@ -60,7 +74,7 @@ const ManagementPage = () => {
                 <SummaryCard title="Aktif" count={summary.active} icon={<UserCheck />} colorClass="bg-gradient-to-br from-green-500 to-green-700" />
                 <button onClick={() => setIsInactiveModalOpen(true)} className="text-left"><SummaryCard title="Tidak Aktif" count={summary.inactive} icon={<UserX />} colorClass="bg-gradient-to-br from-red-500 to-red-700" /></button>
             </div>
-            <PppoeSecretsList refreshTrigger={refreshTrigger} />
+            <PppoeSecretsList secretsData={secrets} loading={loading} />
             <AddPppoeSecretModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onSuccess={handleSuccessAdd} />
             <InactiveSecretsModal isOpen={isInactiveModalOpen} onClose={() => setIsInactiveModalOpen(false)} />
             <IpPoolManagerModal isOpen={isIpPoolModalOpen} onClose={() => setIsIpPoolModalOpen(false)} />
