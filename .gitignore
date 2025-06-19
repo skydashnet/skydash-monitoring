@@ -12,3 +12,4 @@ Thumbs.db
 /backend/public/uploads/
 npm-debug.log*
 node_modules
+node_modulesss
