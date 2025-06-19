@@ -77,12 +77,15 @@ exports.verifyLoginOtp = async (req, res) => {
         if (otps.length === 0 || otps[0].otp_code !== otp) {
             return res.status(400).json({ message: 'Kode OTP salah atau sudah kedaluwarsa.' });
         }
-        
+        await pool.query('DELETE FROM login_otps WHERE user_id = ?', [userId]);
         const [users] = await pool.query('SELECT * FROM users WHERE id = ?', [userId]);
         const user = users[0];
         
         const jti = uuidv4();
-        const payload = { id: user.id, username: user.username, displayName: user.display_name, profile_picture_url: user.profile_picture_url, workspace_id: user.workspace_id, jti: jti };
+        const payload = { 
+            id: user.id, username: user.username, displayName: user.display_name, 
+            profile_picture_url: user.profile_picture_url, workspace_id: user.workspace_id, jti: jti 
+        };
         const token = jwt.sign(payload, process.env.JWT_SECRET || 'your_default_secret_key', { expiresIn: '7d' });
         
         await pool.query(
