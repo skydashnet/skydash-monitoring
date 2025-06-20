@@ -55,7 +55,7 @@ To run this project on your local environment, follow these steps.
 
 1. **Clone Repository**
 ```bash
-git clone [https://github.com/skydashnet/skydash-monitoring.git](https://github.com/skydashnet/skydash-monitoring.git)
+git clone https://github.com/skydashnet/skydash-monitoring.git
 cd skydash-monitoring
 ```
 
