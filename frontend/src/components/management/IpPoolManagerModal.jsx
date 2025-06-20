@@ -13,20 +13,31 @@ const IpPoolManagerModal = ({ isOpen, onClose }) => {
 
     const fetchPoolsAndProfiles = useCallback(async () => {
         setLoading(true);
+        setError('');
         try {
             const [poolsRes, profilesRes] = await Promise.all([
                 fetch('/api/ip-pools', { credentials: 'include' }),
                 fetch('/api/pppoe/profiles', { credentials: 'include' })
             ]);
+
+            if (!poolsRes.ok) {
+                const errorData = await poolsRes.json().catch(() => ({ message: 'Server error tidak dikenal.' }));
+                throw new Error(errorData.message || 'Gagal memuat IP Pools.');
+            }
             const poolsData = await poolsRes.json();
-            const profilesData = await profilesRes.json();
-            if (!poolsRes.ok) throw new Error(poolsData.message || 'Gagal memuat IP Pools.');
             setPools(Array.isArray(poolsData) ? poolsData : []);
-            if (!profilesRes.ok) throw new Error(profilesData.message || 'Gagal memuat Profil.');
+            if (!profilesRes.ok) {
+                const errorData = await profilesRes.json().catch(() => ({ message: 'Server error tidak dikenal.' }));
+                throw new Error(errorData.message || 'Gagal memuat Profil.');
+            }
+            const profilesData = await profilesRes.json();
             setProfiles(Array.isArray(profilesData) ? profilesData : []);
+
         } catch (err) {
-            setError('Gagal memuat data.');
             console.error("Fetch Pool Error:", err);
+            setError(err.message || 'Gagal memuat data.');
+            setPools([]); 
+            setProfiles([]);
         } finally {
             setLoading(false);
         }
@@ -36,15 +47,17 @@ const IpPoolManagerModal = ({ isOpen, onClose }) => {
         if (isOpen) {
             fetchPoolsAndProfiles();
             setNewPool({ profile_name: '', ip_start: '', ip_end: '', gateway: '' });
-            setError('');
         }
     }, [isOpen, fetchPoolsAndProfiles]);
+
     const handleChange = (e) => {
         setNewPool({ ...newPool, [e.target.name]: e.target.value });
     };
+
     const handleAddPool = async (e) => {
         e.preventDefault();
         setError('');
+        setLoading(true);
         try {
             const response = await fetch('/api/ip-pools', {
                 method: 'POST',
@@ -53,12 +66,34 @@ const IpPoolManagerModal = ({ isOpen, onClose }) => {
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.message);
-            fetchPoolsAndProfiles(); 
+            fetchPoolsAndProfiles();
             setNewPool({ profile_name: '', ip_start: '', ip_end: '', gateway: '' });
         } catch (err) {
             setError(err.message);
+        } finally {
+            setLoading(false);
         }
     };
+
+    const handleDeletePool = async (poolId) => {
+        if(!window.confirm("Anda yakin ingin menghapus aturan IP Pool ini?")) return;
+        
+        setError('');
+        setLoading(true);
+        try {
+             const response = await fetch(`/api/ip-pools/${poolId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message);
+            fetchPoolsAndProfiles();
+        } catch (err) {
+             setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    }
     
     if (!isOpen) return null;
 
@@ -72,7 +107,7 @@ const IpPoolManagerModal = ({ isOpen, onClose }) => {
                 
                 <div className="flex-grow p-4 space-y-2 overflow-y-auto min-h-0">
                     <h3 className="font-semibold mb-2">Aturan Aktif</h3>
-                    {loading ? <p>Memuat...</p> : pools.length > 0 ? (
+                    {loading ? <div className="text-center py-4"><Loader2 className="animate-spin inline-block"/></div> : pools.length > 0 ? (
                         pools.map(pool => (
                             <div key={pool.id} className="text-sm p-3 bg-gray-100 dark:bg-gray-700 rounded-lg flex justify-between items-center">
                                <div>
@@ -80,16 +115,19 @@ const IpPoolManagerModal = ({ isOpen, onClose }) => {
                                    <p className="text-xs font-mono">Range: {pool.ip_start} - {pool.ip_end}</p>
                                    <p className="text-xs font-mono">Gateway: {pool.gateway}</p>
                                </div>
-                               <button className="p-2 text-gray-400 hover:text-red-500"><Trash2 size={16}/></button>
+                               <button onClick={() => handleDeletePool(pool.id)} className="p-2 text-gray-400 hover:text-red-500" title="Hapus Aturan">
+                                   <Trash2 size={16}/>
+                                </button>
                             </div>
                         ))
                     ) : (
                         <p className="text-xs text-gray-500 italic text-center py-4">Belum ada aturan IP Pool yang dibuat.</p>
                     )}
+                    {error && <p className="text-red-500 text-sm font-semibold text-center py-2">{error}</p>}
                 </div>
 
                 <form onSubmit={handleAddPool} className="flex-shrink-0 p-4 border-t dark:border-gray-700 space-y-4">
-                    <h3 className="font-semibold">Tambah Aturan Baru</h3>
+                    <h3 className="font-semibold">Tambah/Update Aturan Baru</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="text-xs font-medium">Profil PPPoE</label>
@@ -113,10 +151,10 @@ const IpPoolManagerModal = ({ isOpen, onClose }) => {
                             <input type="text" name="ip_end" placeholder="e.g., 10.10.10.254" value={newPool.ip_end} onChange={handleChange} className="w-full p-2 mt-1 rounded bg-gray-100 dark:bg-gray-700" required />
                         </div>
                     </div>
-                    {error && <p className="text-red-500 text-sm">{error}</p>}
+                    
                     <div className="flex justify-end">
-                        <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700">
-                           <Save size={16} /> Simpan Aturan
+                        <button type="submit" disabled={loading} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50">
+                           {loading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Simpan Aturan
                         </button>
                     </div>
                 </form>

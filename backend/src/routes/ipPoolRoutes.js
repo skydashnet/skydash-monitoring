@@ -7,7 +7,7 @@ router.use(protect);
 
 router.route('/')
     .get(ipPoolController.getPools)
-    .post(ipPoolController.addOrUpdatePool);
+    .post(ipPoolController.addPool);
 
 router.route('/:id')
     .delete(ipPoolController.deletePool);

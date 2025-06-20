@@ -19,8 +19,11 @@ const runCommandForWorkspace = async (workspaceId, command, params = []) => {
     }
     const device = devices[0];
     const client = new RouterOSAPI({
-        host: device.host, user: device.user, password: device.password,
-        port: device.port, timeout: 5
+        host: device.host,
+        user: device.user,
+        password: device.password,
+        port: device.port,
+        timeout: 5
     });
 
     try {

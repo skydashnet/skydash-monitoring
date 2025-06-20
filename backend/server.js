@@ -27,13 +27,12 @@ const importRoutes = require('./src/routes/importRoutes');
 const registrationRoutes = require('./src/routes/registrationRoutes');
 const workspaceRoutes = require('./src/routes/workspaceRoutes');
 const deviceRoutes = require('./src/routes/deviceRoutes');
-const ipPoolRoutes = require('./src/routes/ipPoolRoutes');
 const botRoutes = require('./src/routes/botRoutes');
-const { startWhatsApp } = require('./src/services/whatsappService');
+const ipPoolRoutes = require('./src/routes/ipPoolRoutes');
+const { addConnection, removeConnection, getConnection } = require('./src/services/connectionManager');
+const { startWhatsApp, sendWhatsAppMessage } = require('./src/services/whatsappService');
 const { handleCommand } = require('./src/bot/commandHandler');
-const { sendWhatsAppMessage } = require('./src/services/whatsappService');
 const { generateAndSendDailyReports } = require('./src/bot/reportGenerator');
-
 
 const alarmState = new Map();
 
@@ -62,9 +61,7 @@ app.use(require('./src/middleware/logger'));
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true, legacyHeaders: false });
 
 app.use('/public', express.static('public'));
-
-app.use('/api', apiLimiter); 
-
+app.use('/api', apiLimiter);
 app.use('/api', apiRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
@@ -76,12 +73,11 @@ app.use('/api/hotspot', hotspotRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/register', registrationRoutes);
 app.use('/api/workspaces', workspaceRoutes);
-app.use('/api/devices', deviceRoutes);
 app.use('/api/ip-pools', ipPoolRoutes);
+app.use('/api/devices', deviceRoutes);
 app.use('/api/bot', botRoutes);
 
 const wss = new WebSocket.Server({ server, path: "/ws" });
-const workspaceConnections = new Map();
 
 function broadcastToWorkspace(workspaceId, data) {
     wss.clients.forEach((client) => {
@@ -92,33 +88,28 @@ function broadcastToWorkspace(workspaceId, data) {
 }
 
 function stopWorkspaceMonitoring(workspaceId) {
-    const connection = workspaceConnections.get(workspaceId);
-    if (connection) {
-        console.log(`[Manager] Menghentikan monitoring untuk workspace ID: ${workspaceId}`);
-        clearInterval(connection.intervalId);
-        if (connection.client && connection.client.connected) connection.client.close();
-        workspaceConnections.delete(workspaceId);
-    }
+    removeConnection(workspaceId);
 }
 
 async function startWorkspaceMonitoring(workspaceId) {
-    if (workspaceConnections.has(workspaceId) && workspaceConnections.get(workspaceId)?.client?.connected) {
+    if (getConnection(workspaceId)?.client?.connected) {
         return;
     }
     console.log(`[Manager] Mencoba memulai monitoring untuk workspace ID: ${workspaceId}`);
     
     let client;
     try {
-        const [workspaces] = await pool.query('SELECT active_device_id FROM workspaces WHERE id = ?', [workspaceId]);
+        const [workspaces] = await pool.query('SELECT active_device_id, owner_id FROM workspaces WHERE id = ?', [workspaceId]);
         if (!workspaces[0]?.active_device_id) {
-            broadcastToWorkspace(workspaceId, { type: 'config_error', message: 'Pilih perangkat aktif di Pengaturan.' });
-            return;
+            return broadcastToWorkspace(workspaceId, { type: 'config_error', message: 'Pilih perangkat aktif di Pengaturan.' });
         }
+        
         const activeDeviceId = workspaces[0].active_device_id;
+        const ownerId = workspaces[0].owner_id;
+
         const [devices] = await pool.query('SELECT * FROM mikrotik_devices WHERE id = ? AND workspace_id = ?', [activeDeviceId, workspaceId]);
         if (devices.length === 0) {
-            broadcastToWorkspace(workspaceId, { type: 'config_error', message: `Perangkat aktif tidak ditemukan.` });
-            return;
+            return broadcastToWorkspace(workspaceId, { type: 'config_error', message: `Perangkat aktif tidak ditemukan.` });
         }
         
         const device = devices[0];
@@ -132,14 +123,13 @@ async function startWorkspaceMonitoring(workspaceId) {
                 stopWorkspaceMonitoring(workspaceId); return;
             }
             try {
-                const safeWrite = (command, params = []) => client.write(command, params).catch(err => []);
+                const safeWrite = (command, params = []) => client.write(command, params).catch(() => []);
                 const [alarms] = await pool.query('SELECT * FROM alarms WHERE workspace_id = ?', [workspaceId]);
                 const pppoeAlarm = alarms.find(a => a.type === 'PPPOE_TRAFFIC');
+
                 const [resource, activePppoeUsers, allInterfaces, activeHotspotUsers, simpleQueues] = await Promise.all([
-                    safeWrite('/system/resource/print'),
-                    safeWrite('/ppp/active/print', ['?service=pppoe']),
-                    safeWrite('/interface/print'),
-                    safeWrite('/ip/hotspot/active/print'),
+                    safeWrite('/system/resource/print'), safeWrite('/ppp/active/print', ['?service=pppoe']),
+                    safeWrite('/interface/print'), safeWrite('/ip/hotspot/active/print'),
                     safeWrite('/queue/simple/print')
                 ]);
 
@@ -171,50 +161,45 @@ async function startWorkspaceMonitoring(workspaceId) {
                 const trafficResults = await Promise.all(trafficPromises);
                 const trafficUpdateBatch = {};
                 trafficResults.filter(r => r).forEach(result => { trafficUpdateBatch[result.interface] = result.data; });
+
                 if (pppoeAlarm) {
                     const thresholdBps = pppoeAlarm.threshold_mbps * 1000 * 1000;
-                    
                     activePppoeUsers.forEach(async (user) => {
                         const ifaceName = `<pppoe-${user.name}>`;
                         const trafficData = trafficUpdateBatch[ifaceName];
                         if (!trafficData) return;
-
                         const downloadSpeed = parseFloat(trafficData['rx-bits-per-second']);
-                        
                         if (downloadSpeed > thresholdBps) {
                             const lastAlert = alarmState.get(ifaceName) || 0;
                             const now = Date.now();
                             if (now - lastAlert > 15 * 60 * 1000) {
-                                console.log(`[ALARM] Memicu alarm untuk ${user.name}`);
-                                const [ownerInfo] = await pool.query('SELECT u.whatsapp_number FROM users u JOIN workspaces w ON u.id = w.owner_id WHERE w.id = ?', [workspaceId]);
-                                if (ownerInfo[0]?.whatsapp_number) {
-                                    const ownerNumber = ownerInfo[0].whatsapp_number;
+                                const [[owner]] = await pool.query('SELECT whatsapp_number FROM users WHERE id = ?', [ownerId]);
+                                if (owner?.whatsapp_number) {
                                     const speedMbps = (downloadSpeed / 1000 / 1000).toFixed(2);
                                     const alarmMessage = `🚨 *ALARM TRAFFIC TINGGI* 🚨\n\nPengguna PPPoE \`${user.name}\` terdeteksi menggunakan bandwidth *${speedMbps} Mbps*, melebihi batas alarm Anda (*${pppoeAlarm.threshold_mbps} Mbps*).`;
-                                    sendWhatsAppMessage(ownerNumber, alarmMessage);
+                                    sendWhatsAppMessage(owner.whatsapp_number, alarmMessage);
                                     alarmState.set(ifaceName, now);
                                 }
                             }
                         }
                     });
                 }
+                
                 const batchPayload = { resource: resource[0] || {}, traffic: trafficUpdateBatch, hotspotActive: enrichedHotspotUsers };
                 broadcastToWorkspace(workspaceId, { type: 'batch-update', payload: batchPayload });
-                
             } catch (cycleError) {
                 console.error(`[Cycle Error] Workspace ID ${workspaceId}:`, cycleError.message);
                 stopWorkspaceMonitoring(workspaceId);
             }
         };
 
-        const intervalId = setInterval(runMonitoringCycle, 500);
-        workspaceConnections.set(workspaceId, { client, intervalId, userCount: 0 });
+        const intervalId = setInterval(runMonitoringCycle, 3000);
+        addConnection(workspaceId, { client, intervalId });
         runMonitoringCycle();
-
     } catch (connectError) {
         console.error(`[Manager] GAGAL terhubung ke MikroTik untuk workspace ID ${workspaceId}:`, connectError.message);
         broadcastToWorkspace(workspaceId, { type: 'error', message: `Gagal terhubung ke perangkat` });
-        if(client?.connected) client.close();
+        if (client?.connected) client.close();
     }
 };
 
@@ -235,10 +220,10 @@ wss.on('connection', async (ws, req) => {
 
         if (!workspaceId) return;
 
-        let connection = workspaceConnections.get(workspaceId);
+        let connection = getConnection(workspaceId);
         if (!connection || !connection.client?.connected) {
             await startWorkspaceMonitoring(workspaceId);
-            connection = workspaceConnections.get(workspaceId);
+            connection = getConnection(workspaceId);
         }
 
         if (connection) {
@@ -248,7 +233,7 @@ wss.on('connection', async (ws, req) => {
         
         ws.on('close', () => {
             if (workspaceId) {
-                const connection = workspaceConnections.get(workspaceId);
+                const connection = getConnection(workspaceId);
                 if (connection) {
                     connection.userCount--;
                     console.log(`User terputus dari workspace ${workspaceId}. Sisa user: ${connection.userCount}`);
@@ -263,16 +248,12 @@ wss.on('connection', async (ws, req) => {
     }
 });
 
-
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
     console.log(`Server backend berjalan di port ${PORT}`);
     startWhatsApp(handleCommand);
     cron.schedule('0 8 * * *', () => {
         generateAndSendDailyReports();
-    }, {
-        scheduled: true,
-        timezone: "Asia/Jakarta"
-    });
-    console.log('[Scheduler] Penjadwal laporan harian telah diaktifkan, akan berjalan setiap jam 8 pagi WIB.');
+    }, { scheduled: true, timezone: "Asia/Jakarta" });
+    console.log('[Scheduler] Penjadwal laporan harian telah diaktifkan.');
 });
