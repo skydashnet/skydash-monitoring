@@ -10,7 +10,7 @@ const DeviceManagementCard = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingDevice, setEditingDevice] = useState(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
-    const { restartMonitoring } = useMikrotik();
+    const { ws } = useMikrotik();
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -21,18 +21,13 @@ const DeviceManagementCard = () => {
             ]);
             
             const devicesData = await devicesRes.json();
-            if (devicesRes.ok) {
-                setDevices(Array.isArray(devicesData) ? devicesData : []);
-            } else {
-                throw new Error(devicesData.message || 'Gagal memuat perangkat.');
-            }
+            if (devicesRes.ok) setDevices(Array.isArray(devicesData) ? devicesData : []);
+            else throw new Error(devicesData.message || 'Gagal memuat perangkat.');
 
             const workspaceData = await workspaceRes.json();
-            if (workspaceRes.ok) {
-                setActiveDeviceId(workspaceData.active_device_id);
-            } else {
-                setActiveDeviceId(null);
-            }
+            if (workspaceRes.ok) setActiveDeviceId(workspaceData.active_device_id);
+            else setActiveDeviceId(null);
+
         } catch (error) {
             console.error("Gagal memuat data perangkat:", error);
         } finally {
@@ -63,10 +58,7 @@ const DeviceManagementCard = () => {
     const handleDelete = async (deviceId) => {
         if (!window.confirm('Anda yakin ingin menghapus perangkat ini?')) return;
         try {
-            const response = await fetch(`/api/devices/${deviceId}`, {
-                method: 'DELETE',
-                credentials: 'include'
-            });
+            const response = await fetch(`/api/devices/${deviceId}`, { method: 'DELETE', credentials: 'include' });
             if (!response.ok) {
                 const data = await response.json();
                 throw new Error(data.message || 'Gagal menghapus perangkat');
@@ -90,9 +82,13 @@ const DeviceManagementCard = () => {
                 const data = await response.json();
                 throw new Error(data.message || 'Gagal mengubah perangkat aktif');
             }
-            alert('Perangkat aktif berhasil diubah. Monitoring akan dimulai ulang.');
-            // Panggil fungsi restart dari context
-            restartMonitoring();
+            alert('Perangkat aktif berhasil diubah. Memulai ulang monitoring...');
+
+            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+                ws.current.send(JSON.stringify({ type: 'RESTART_MONITORING' }));
+            }
+            
+            setRefreshTrigger(prev => prev + 1);
         } catch (error) {
             alert(`Error: ${error.message}`);
         }
@@ -103,16 +99,14 @@ const DeviceManagementCard = () => {
             <div className="bg-white dark:bg-gray-800/50 rounded-xl shadow-lg p-6">
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-gray-800 dark:text-white">Manajemen Perangkat</h2>
-                    <button onClick={handleAdd} className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors">
+                    <button onClick={handleAdd} className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg shadow-md hover:bg-blue-700">
                         <Plus size={16} />
                         <span>Tambah</span>
                     </button>
                 </div>
                 <div className="space-y-3">
                     {loading ? (
-                        <div className="flex justify-center items-center p-4">
-                            <Loader2 className="animate-spin text-gray-500" />
-                        </div>
+                        <div className="flex justify-center items-center p-4"> <Loader2 className="animate-spin text-gray-500" /> </div>
                     ) : devices.length > 0 ? (
                         devices.map(device => (
                             <div key={device.id} className="flex items-center gap-4 p-3 bg-gray-100 dark:bg-gray-700/50 rounded-lg">
@@ -126,7 +120,7 @@ const DeviceManagementCard = () => {
                                         <CheckCircle size={14} /> Aktif
                                     </span>
                                 ) : (
-                                    <button onClick={() => handleSetActive(device.id)} className="text-xs px-2 py-1 rounded-md bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors">
+                                    <button onClick={() => handleSetActive(device.id)} className="text-xs px-2 py-1 rounded-md bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500">
                                         Jadikan Aktif
                                     </button>
                                 )}
@@ -141,12 +135,7 @@ const DeviceManagementCard = () => {
                     )}
                 </div>
             </div>
-            <DeviceModal 
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                onSuccess={handleSuccess}
-                deviceToEdit={editingDevice}
-            />
+            <DeviceModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSuccess={handleSuccess} deviceToEdit={editingDevice} />
         </>
     );
 };
