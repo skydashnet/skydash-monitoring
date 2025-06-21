@@ -34,6 +34,7 @@ const { addConnection, removeConnection, getConnection } = require('./src/servic
 const { startWhatsApp } = require('./src/services/whatsappService');
 const { handleCommand } = require('./src/bot/commandHandler');
 const { generateAndSendDailyReports } = require('./src/bot/reportGenerator');
+const { logAllActiveWorkspaces } = require('./src/bot/dataLogger');
 
 const alarmState = new Map();
 
@@ -232,8 +233,14 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
     console.log(`Server backend berjalan di port ${PORT}`);
     startWhatsApp(handleCommand);
-    cron.schedule('0 8 * * *', () => {
-        generateAndSendDailyReports();
-    }, { scheduled: true, timezone: "Asia/Jakarta" });
+    cron.schedule('0 8 * * *', generateAndSendDailyReports, {
+        scheduled: true,
+        timezone: "Asia/Jakarta"
+    });
     console.log('[Scheduler] Penjadwal laporan harian telah diaktifkan.');
+    cron.schedule('*/15 * * * *', logAllActiveWorkspaces, {
+        scheduled: true,
+        timezone: "Asia/Jakarta"
+    });
+    console.log('[Scheduler] Pencatat data statistik setiap 15 menit telah diaktifkan.');
 });
