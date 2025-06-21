@@ -3,46 +3,44 @@ let RouterOSAPI = require('node-routeros');
 if (RouterOSAPI.RouterOSAPI) { RouterOSAPI = RouterOSAPI.RouterOSAPI; }
 
 /**
- * @param {object} workspace
+ * @param {object} workspace - Objek berisi id, active_device_id
  */
 async function logStatsForWorkspace(workspace) {
     let client;
     try {
         const [devices] = await pool.query('SELECT * FROM mikrotik_devices WHERE id = ?', [workspace.active_device_id]);
-        if (devices.length === 0) return;
-        
+        if (devices.length === 0) {
+            console.log(`[Data Logger] Tidak ada perangkat aktif untuk workspace ${workspace.id}`);
+            return;
+        }
         const device = devices[0];
+        if (!device.wan_interface) {
+            console.log(`[Data Logger] Lewati workspace ${workspace.id}, interface WAN belum diatur untuk perangkat ${device.name}.`);
+            return;
+        }
+
         client = new RouterOSAPI({
             host: device.host, user: device.user, password: device.password,
             port: device.port, timeout: 15
         });
         await client.connect();
-        const [activePppoe, activeHotspot, interfaces] = await Promise.all([
-            client.write('/ppp/active/print').catch(() => []),
-            client.write('/ip/hotspot/active/print').catch(() => []),
-            client.write('/interface/print').catch(() => []),
+        const [activePppoe, activeHotspot] = await Promise.all([
+            client.write('/ppp/active/print', ['=count-only=']).then(r => r[0]?.count || 0).catch(() => 0),
+            client.write('/ip/hotspot/active/print', ['=count-only=']).then(r => r[0]?.count || 0).catch(() => 0)
         ]);
-
+        const [wanInterfaceData] = await client.write('/interface/print', [`?name=${device.wan_interface}`]).catch(() => [null]);
+        
         client.close();
-
-        const totalRx = interfaces
-            .filter(iface => ['ether', 'wlan'].includes(iface.type))
-            .reduce((sum, iface) => sum + parseInt(iface['rx-byte'], 10), 0);
-
-        const totalTx = interfaces
-            .filter(iface => ['ether', 'wlan'].includes(iface.type))
-            .reduce((sum, iface) => sum + parseInt(iface['tx-byte'], 10), 0);
-
         const stats = {
             workspace_id: workspace.id,
             device_id: device.id,
-            active_pppoe_count: activePppoe.length,
-            active_hotspot_count: activeHotspot.length,
-            total_rx_bytes: totalRx,
-            total_tx_bytes: totalTx
+            active_pppoe_count: parseInt(activePppoe, 10),
+            active_hotspot_count: parseInt(hotspotActive, 10),
+            total_rx_bytes: wanInterfaceData ? parseInt(wanInterfaceData['rx-byte'], 10) : 0,
+            total_tx_bytes: wanInterfaceData ? parseInt(wanInterfaceData['tx-byte'], 10) : 0,
         };
         await pool.query('INSERT INTO historical_stats SET ?', stats);
-        console.log(`[Data Logger] Statistik untuk workspace ${workspace.id} berhasil dicatat.`);
+        console.log(`[Data Logger] Statistik untuk workspace ${workspace.id} (WAN: ${device.wan_interface}) berhasil dicatat.`);
 
     } catch (error) {
         if (client && client.connected) client.close();

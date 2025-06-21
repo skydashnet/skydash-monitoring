@@ -98,7 +98,6 @@ exports.getDeviceCapabilities = async (req, res) => {
         res.json(capabilities);
 
     } catch (error) {
-        // Jika koneksi ke perangkat gagal total, anggap semua fitur tidak ada
         console.error("CAPABILITIES CHECK ERROR:", error.message);
         res.json({ hasPppoe: false, hasHotspot: false });
     }
