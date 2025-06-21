@@ -79,7 +79,7 @@ const WhatsappBotCard = () => {
                     <button 
                         onClick={handleTestReport}
                         disabled={testLoading}
-                        className="flex items-center gap-2 px-3 py-2 text-sm bg-cyan-600 text-white font-semibold rounded-lg hover:bg-cyan-700 disabled:opacity-70"
+                        className="flex items-center gap-2 px-3 py-2 text-sm bg-cyan-600 text-black font-semibold rounded-lg hover:bg-cyan-700 disabled:opacity-70 dark:bg-cyan-500 dark:text-white dark:hover:bg-cyan-600"
                     >
                         {testLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                         {testLoading ? 'Mengirim...' : 'Kirim Laporan Tes Sekarang'}
