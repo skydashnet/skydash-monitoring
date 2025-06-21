@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { sendWhatsAppMessage } = require('../services/whatsappService');
+const { generateSingleReport } = require('./reportGenerator');
 
 const normalizeWANumber = (number) => {
     let cleanNumber = number.replace(/\D/g, '');
@@ -37,5 +38,34 @@ exports.toggleBotStatus = async (req, res) => {
     } catch (error) {
         console.error("DATABASE UPDATE BOT STATUS ERROR:", error);
         res.status(500).json({ message: 'Gagal mengubah status bot di database.', error: error.message });
+    }
+};
+
+exports.triggerTestReport = async (req, res) => {
+    const workspaceId = req.user.workspace_id;
+    const whatsappNumber = req.user.whatsapp_number;
+
+    if (!workspaceId || !whatsappNumber) {
+        return res.status(400).json({ message: 'Workspace atau nomor WhatsApp tidak terkonfigurasi.' });
+    }
+
+    try {
+        const [workspaces] = await pool.query('SELECT * FROM workspaces WHERE id = ?', [workspaceId]);
+        if (workspaces.length === 0) {
+            return res.status(404).json({ message: 'Workspace tidak ditemukan.' });
+        }
+        
+        const workspaceData = { ...workspaces[0], whatsapp_number: whatsappNumber };
+
+        const result = await generateSingleReport(workspaceData);
+
+        if (result.success) {
+            res.status(200).json({ message: 'Laporan tes berhasil dikirim ke WhatsApp Anda.' });
+        } else {
+            throw new Error(result.error || 'Gagal mengirim laporan tes.');
+        }
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
 };
