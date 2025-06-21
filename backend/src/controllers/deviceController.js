@@ -102,3 +102,38 @@ exports.getDeviceCapabilities = async (req, res) => {
         res.json({ hasPppoe: false, hasHotspot: false });
     }
 };
+
+exports.getInterfaces = async (req, res) => {
+    const { id: deviceId } = req.params;
+    const workspaceId = req.user.workspace_id;
+    try {
+        const [devices] = await pool.query('SELECT * FROM mikrotik_devices WHERE id = ? AND workspace_id = ?', [deviceId, workspaceId]);
+        if (devices.length === 0) throw new Error('Perangkat tidak ditemukan atau Anda tidak punya izin.');
+
+        const device = devices[0];
+        const client = new RouterOSAPI({ host: device.host, user: device.user, password: device.password, port: device.port, timeout: 5 });
+        
+        await client.connect();
+        const interfaces = await client.write('/interface/print', ['?type=ether,wlan']);
+        client.close();
+
+        res.json(interfaces.map(iface => iface.name));
+    } catch (error) {
+        res.status(500).json({ message: `Gagal mengambil interface: ${error.message}` });
+    }
+};
+
+exports.setWanInterface = async (req, res) => {
+    const { id: deviceId } = req.params;
+    const { interfaceName } = req.body;
+    const workspaceId = req.user.workspace_id;
+    try {
+        await pool.query(
+            'UPDATE mikrotik_devices SET wan_interface = ? WHERE id = ? AND workspace_id = ?',
+            [interfaceName, deviceId, workspaceId]
+        );
+        res.status(200).json({ message: `Interface WAN berhasil diatur ke ${interfaceName}` });
+    } catch (error) {
+        res.status(500).json({ message: `Gagal mengatur interface WAN: ${error.message}` });
+    }
+};

@@ -14,6 +14,7 @@ router.route('/:id')
     .delete(deviceController.deleteDevice);
     
 router.get('/capabilities', deviceController.getDeviceCapabilities);
-
+router.get('/:id/interfaces', deviceController.getInterfaces);
+router.put('/:id/wan', deviceController.setWanInterface);
 
 module.exports = router;
