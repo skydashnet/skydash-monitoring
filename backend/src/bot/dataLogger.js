@@ -51,20 +51,23 @@ async function logAllActiveWorkspaces() {
                 });
                 await client.connect();
                 console.log(`[Data Logger] Koneksi berhasil ke perangkat: ${device.name} (ID: ${deviceId})`);
-
-                const [activePppoe, activeHotspot, [wanInterfaceData]] = await Promise.all([
+                const [pppoeCount, hotspotCount, wanTraffic, wanTotals] = await Promise.all([
                     client.write('/ppp/active/print').then(r => r.length).catch(() => 0),
                     client.write('/ip/hotspot/active/print').then(r => r.length).catch(() => 0),
-                    client.write('/interface/print', [`?name=${device.wan_interface}`]).catch(() => [null])
+                    client.write('/interface/monitor-traffic', [`=interface=${device.wan_interface}`, '=once=']).then(r => r[0] || {}).catch(() => ({})),
+                    client.write('/interface/print', [`?name=${device.wan_interface}`]).then(r => r[0] || {}).catch(() => ({}))
                 ]);
-
+                
                 client.close();
+
                 const commonStats = {
                     device_id: device.id,
-                    active_pppoe_count: activePppoe,
-                    active_hotspot_count: activeHotspot,
-                    total_rx_bytes: wanInterfaceData ? parseInt(wanInterfaceData['rx-byte'], 10) : 0,
-                    total_tx_bytes: wanInterfaceData ? parseInt(wanInterfaceData['tx-byte'], 10) : 0,
+                    active_pppoe_count: pppoeCount,
+                    active_hotspot_count: hotspotCount,
+                    total_rx_bytes: parseInt(wanTotals['rx-byte'] || 0, 10),
+                    total_tx_bytes: parseInt(wanTotals['tx-byte'] || 0, 10),
+                    peak_rx_bps: parseInt(wanTraffic['rx-bits-per-second'] || 0, 10),
+                    peak_tx_bps: parseInt(wanTraffic['tx-bits-per-second'] || 0, 10)
                 };
                 
                 for (const workspace of associatedWorkspaces) {
