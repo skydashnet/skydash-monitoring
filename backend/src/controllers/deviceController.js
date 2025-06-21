@@ -1,6 +1,11 @@
 const pool = require('../config/database');
 const { runCommandForWorkspace } = require('../utils/apiConnection');
 
+let RouterOSAPI = require('node-routeros');
+if (RouterOSAPI.RouterOSAPI) {
+    RouterOSAPI = RouterOSAPI.RouterOSAPI;
+}
+
 exports.listDevices = async (req, res) => {
     const workspaceId = req.user.workspace_id;
     if (!workspaceId) return res.json([]);
@@ -20,14 +25,25 @@ exports.addDevice = async (req, res) => {
     if (!name || !host || !user || !port) {
         return res.status(400).json({ message: 'Nama, Host, User, dan Port harus diisi.' });
     }
+    const dbConnection = await pool.getConnection();
     try {
-        await pool.query(
+        await dbConnection.beginTransaction();
+        const [result] = await dbConnection.query(
             'INSERT INTO mikrotik_devices (workspace_id, name, host, user, password, port) VALUES (?, ?, ?, ?, ?, ?)',
             [workspaceId, name, host, user, password || null, port]
         );
+        const newDeviceId = result.insertId;
+        const [devices] = await dbConnection.query('SELECT id FROM mikrotik_devices WHERE workspace_id = ?', [workspaceId]);
+        if (devices.length === 1) {
+            await dbConnection.query('UPDATE workspaces SET active_device_id = ? WHERE id = ?', [newDeviceId, workspaceId]);
+        }
+        await dbConnection.commit();
         res.status(201).json({ message: 'Perangkat berhasil ditambahkan.' });
     } catch (error) {
+        await dbConnection.rollback();
         res.status(500).json({ message: 'Gagal menambah perangkat', error: error.message });
+    } finally {
+        dbConnection.release();
     }
 };
 
@@ -77,13 +93,12 @@ exports.deleteDevice = async (req, res) => {
         res.status(500).json({ message: 'Gagal menghapus perangkat.', error: error.message });
     }
 };
-
 exports.getDeviceCapabilities = async (req, res) => {
     const workspaceId = req.user.workspace_id;
     if (!workspaceId) {
         return res.json({ hasPppoe: false, hasHotspot: false });
     }
-    
+
     try {
         const allInterfaces = await runCommandForWorkspace(workspaceId, '/interface/print').catch(() => []);
         const hasPppoe = allInterfaces.some(iface => iface.type.startsWith('pppoe'));
@@ -111,14 +126,19 @@ exports.getInterfaces = async (req, res) => {
         if (devices.length === 0) throw new Error('Perangkat tidak ditemukan atau Anda tidak punya izin.');
 
         const device = devices[0];
-        const client = new RouterOSAPI({ host: device.host, user: device.user, password: device.password, port: device.port, timeout: 5 });
+        const client = new RouterOSAPI({ host: device.host, user: device.user, password: device.password, port: device.port, timeout: 10 });
         
         await client.connect();
-        const interfaces = await client.write('/interface/print', ['?type=ether,wlan']);
+        const allInterfaces = await client.write('/interface/print');
+        
         client.close();
+        const filteredInterfaces = allInterfaces
+            .filter(iface => iface.type === 'ether' || iface.type === 'wlan')
+            .map(iface => iface.name);
 
-        res.json(interfaces.map(iface => iface.name));
+        res.json(filteredInterfaces);
     } catch (error) {
+        console.error("GET INTERFACES ERROR:", error);
         res.status(500).json({ message: `Gagal mengambil interface: ${error.message}` });
     }
 };

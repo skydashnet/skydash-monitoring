@@ -55,17 +55,23 @@ exports.triggerTestReport = async (req, res) => {
             return res.status(404).json({ message: 'Workspace tidak ditemukan.' });
         }
         
-        const workspaceData = { ...workspaces[0], whatsapp_number: whatsappNumber };
+        const workspaceData = { 
+            id: workspaces[0].id,
+            name: workspaces[0].name,
+            whatsapp_number: whatsappNumber,
+            active_device_id: workspaces[0].active_device_id
+        };
 
         const result = await generateSingleReport(workspaceData);
 
         if (result.success) {
             res.status(200).json({ message: 'Laporan tes berhasil dikirim ke WhatsApp Anda.' });
         } else {
-            throw new Error(result.error || 'Gagal mengirim laporan tes.');
+            throw new Error(result.error || 'Gagal mengirim laporan tes dari generator.');
         }
 
     } catch (error) {
+        console.error("TRIGGER TEST REPORT ERROR:", error);
         res.status(500).json({ message: error.message });
     }
 };

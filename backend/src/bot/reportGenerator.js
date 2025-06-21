@@ -22,9 +22,6 @@ const formatSpeed = (bits) => {
     return `${parseFloat((bits / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 };
 
-/**
- * @param {object} workspace
- */
 async function generateSingleAnalyticReport(workspace) {
     console.log(`[Analis Laporan] Memproses workspace: ${workspace.name} (ID: ${workspace.id})`);
     
@@ -37,7 +34,7 @@ async function generateSingleAnalyticReport(workspace) {
         if (stats.length < 2) {
             console.log(`[Analis Laporan] Data historis tidak cukup untuk workspace ${workspace.id}, mengirim laporan snapshot.`);
             await sendSimpleSnapshot(workspace);
-            return;
+            return { success: true, workspaceName: workspace.name };
         }
 
         let peakTotalUsers = 0;
@@ -91,22 +88,30 @@ async function generateSingleAnalyticReport(workspace) {
 async function getLiveSnapshot(workspace) {
     let client;
     try {
-        const [devices] = await pool.query('SELECT * FROM mikrotik_devices WHERE id = (SELECT active_device_id FROM workspaces WHERE id = ?)', [workspace.id]);
-        if (devices.length === 0) throw new Error('Perangkat aktif tidak ditemukan');
+        const [devices] = await pool.query('SELECT * FROM mikrotik_devices WHERE id = ?', [workspace.active_device_id]);
+        if (devices.length === 0) throw new Error('Perangkat aktif tidak ditemukan di database.');
         
-        client = new RouterOSAPI({ host: devices[0].host, user: devices[0].user, password: devices[0].password, port: devices[0].port, timeout: 10 });
+        const device = devices[0];
+        client = new RouterOSAPI({ host: device.host, user: device.user, password: device.password, port: device.port, timeout: 10 });
         await client.connect();
 
-        const pppoeActive = (await client.write('/ppp/active/print', ['=count-only=']))[0]?.count || '0';
-        const hotspotActive = (await client.write('/ip/hotspot/active/print', ['=count-only=']))[0]?.count || '0';
+        const pppoeActiveData = await client.write('/ppp/active/print');
+        const hotspotActiveData = await client.write('/ip/hotspot/active/print');
+        
         client.close();
-        return { pppoeActive, hotspotActive };
+
+        const pppoeActiveCount = pppoeActiveData.length;
+        const hotspotActiveCount = hotspotActiveData.length;
+
+        return { pppoeActive: pppoeActiveCount, hotspotActive: hotspotActiveCount };
+
     } catch(e) {
         if (client && client.connected) client.close();
         console.error(`Gagal mengambil snapshot untuk workspace ${workspace.id}:`, e.message);
         return { pppoeActive: 'N/A', hotspotActive: 'N/A' };
     }
 }
+
 
 async function sendSimpleSnapshot(workspace) {
     const snapshotData = await getLiveSnapshot(workspace);
@@ -118,7 +123,7 @@ async function generateAndSendDailyReports() {
     console.log(`[Laporan Harian] Memulai proses terjadwal... (${new Date().toLocaleTimeString()})`);
     try {
         const [workspaces] = await pool.query(
-            `SELECT w.id, w.name, u.whatsapp_number 
+            `SELECT w.id, w.name, w.active_device_id, u.whatsapp_number 
              FROM workspaces w 
              JOIN users u ON w.owner_id = u.id 
              WHERE w.whatsapp_bot_enabled = TRUE AND u.whatsapp_number IS NOT NULL`
@@ -132,4 +137,8 @@ async function generateAndSendDailyReports() {
     }
 }
 
-module.exports = { generateAndSendDailyReports, generateSingleReport: generateSingleAnalyticReport };
+module.exports = { 
+    generateAndSendDailyReports, 
+    generateSingleAnalyticReport,
+    generateSingleReport: generateSingleAnalyticReport
+};
