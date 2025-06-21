@@ -23,13 +23,16 @@ services:
     container_name: skydash-backend
     restart: always
     ports:
-      - "3001:3001"
+      - "3000:3000"
     environment:
       - DB_HOST=db
       - DB_USER=skydash_user
       - DB_PASSWORD=user_password_secret
       - DB_NAME=skydash_db
       - JWT_SECRET=INI_RAHASIA_BANGET_JANGAN_SAMPE_BOCOR_GANTI_INI
+    volumes:
+      - ./backend/whatsapp_auth_info:/usr/src/app/whatsapp_auth_info
+      - ./backend/public/uploads/avatars:/usr/src/app/public/uploads/avatars
     depends_on:
       - db
 
@@ -43,5 +46,6 @@ services:
       - "5173:80"
     depends_on:
       - backend
+
 volumes:
   skydash-db-data:
