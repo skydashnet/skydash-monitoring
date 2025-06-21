@@ -7,32 +7,32 @@ SkydashNET is a powerful *full-stack* web application for monitoring and managin
 
 ## ✨ Key Features
 
-- **Real-time Dashboard:** Monitor CPU, Memory and network traffic (ethernet & PPPoE) usage in real time using interactive graphs updated via WebSockets.
+ **Real-time Dashboard:** Monitor CPU, Memory and network traffic (ethernet & PPPoE) usage in real time using interactive graphs updated via WebSockets.
 - **PPPoE Management:**
-- View a summary of total, active and inactive users.
-- Complete list of all PPPoE *secrets* with connection status.
-- Add new PPPoE users with intelligent automatic IP allocation.
+    - View a summary of total, active and inactive users.
+    - Complete list of all PPPoE *secrets* with connection status.
+    - Add new PPPoE users with intelligent automatic IP allocation.
 - **Hotspot Management:**
-- View a summary of total and active Hotspot users.
-- View a list of all registered Hotspot users along with total data usage.
-- Monitor *live* traffic (upload/download) for each active user.
+    - View a summary of total and active Hotspot users.
+    - View a list of all registered Hotspot users along with total data usage.
+    - Monitor *live* traffic (upload/download) for each active user.
 - **Asset Management & Mapping:**
-- Add, edit and delete physical network assets (ODC, ODP, JoinBox, Server).
-- Visualize the location of all assets on an interactive map (Leaflet).
-- Bulk import assets from `.kml` files (Google Earth).
-- Connect ODP to ODC and PPPoE users to ODP.
+    - Add, edit and delete physical network assets (ODC, ODP, JoinBox, Server).
+    - Visualize the location of all assets on an interactive map (Leaflet).
+    - Bulk import assets from `.kml` files (Google Earth).
+    - Connect ODP to ODC and PPPoE users to ODP.
 - **Authentication & Security System:**
-- Secure login with two-step verification (2FA) via WhatsApp OTP.
-- Active session management, allowing users to log out from other devices.
-- Profile updates, change passwords, and delete accounts.
+    - Secure login with two-step verification (2FA) via WhatsApp OTP.
+    - Active session management, allowing users to log out from other devices.
+    - Profile updates, change passwords, and delete accounts.
 - **Workspace & Device System:**
-- Support for multiple MikroTik devices in one workspace.
-- Select which devices to actively monitor.
-- Share the entire workspace configuration (assets, devices) to other users with a unique code.
+    - Support for multiple MikroTik devices in one workspace.
+    - Select which devices to actively monitor.
+    - Share the entire workspace configuration (assets, devices) to other users with a unique code.
 
 ## 🛠️ Tech Stack
 
-| Bagian    | Teknologi                                                                                                  |
+| Part    | Technology                                                                                                  |
 | :-------- | :--------------------------------------------------------------------------------------------------------- |
 | **Backend** | Node.js, Express.js, MySQL, WebSocket (`ws`), JWT, Bcrypt.js, `node-routeros`, `@whiskeysockets/baileys` |
 | **Frontend**| React, Vite, Tailwind CSS, React Router, Chart.js, Leaflet, Lucide Icons                                   |
@@ -68,6 +68,7 @@ pnpm install
 3. **Backend Configuration**
 - Move to the backend directory: `cd backend`
 - Create a `.env` file from the existing example. You can create a `.env.example` file first.
+
 ```
 # backend/.env.example
 DB_HOST=localhost
