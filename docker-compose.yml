@@ -15,8 +15,9 @@ services:
       - "3307:3306"
     volumes:
       - skydash-db-data:/var/lib/mysql
+
   backend:
-    image:
+    build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: skydash-backend
@@ -28,11 +29,12 @@ services:
       - DB_USER=skydash_user
       - DB_PASSWORD=user_password_secret
       - DB_NAME=skydash_db
-      - JWT_SECRET=SECRETKEY
+      - JWT_SECRET=INI_RAHASIA_BANGET_JANGAN_SAMPE_BOCOR_GANTI_INI
     depends_on:
       - db
+
   frontend:
-    image:
+    build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: skydash-frontend
@@ -41,6 +43,5 @@ services:
       - "5173:80"
     depends_on:
       - backend
-
 volumes:
   skydash-db-data:
