@@ -35,4 +35,4 @@ Skydash.NET is a powerful *full-stack* web application for monitoring and managi
 
 ## 🚀 Getting Started
 
-To run this project on your local environment, please refer to our comprehensive **[[GitHub Wiki]]** for a full installation and configuration guide.
+To run this project on your local environment, please refer to our comprehensive **[GitHub Wiki]** for a full installation and configuration guide.
