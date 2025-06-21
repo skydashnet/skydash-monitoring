@@ -1,6 +1,6 @@
 const pool = require('../config/database');
 const { sendWhatsAppMessage } = require('../services/whatsappService');
-const { generateSingleReport } = require('./reportGenerator');
+const { generateSingleReport } = require('../bot/reportGenerator');
 
 const normalizeWANumber = (number) => {
     let cleanNumber = number.replace(/\D/g, '');
