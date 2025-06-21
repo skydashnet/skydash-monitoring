@@ -1,12 +1,13 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Settings, Users, MapPin, SlidersHorizontal } from 'lucide-react';
+import { Home, Settings, Users, MapPin, SlidersHorizontal, Shield } from 'lucide-react';
 
 const navItems = [
   { icon: <Home size={24} />, label: 'Home', to: '/' },
   { icon: <SlidersHorizontal size={24} />, label: 'Management', to: '/management' },
   { icon: <MapPin size={24} />, label: 'Location', to: '/location' },
   { icon: <Users size={24} />, label: 'Hotspot', to: '/hotspot' },
+  { icon: <Shield size={24} />, label: 'ARP', to: '/arp' },
   { icon: <Settings size={24} />, label: 'Settings', to: '/settings' },
 ];
 

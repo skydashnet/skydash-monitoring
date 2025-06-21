@@ -12,6 +12,7 @@ Berikut adalah daftar perintah yang tersedia:
 *Pengecekan & Status*
 • \`.ping\` - Cek koneksi bot ke dasbor.
 • \`.log <error?>\` - Lihat log MikroTik.
+• \`.speedtest\` - Menjalankan tes kecepatan internet.
 
 *Manajemen Aset*
 • \`.odp total\` - Lihat total & list ODP.
@@ -30,6 +31,7 @@ Berikut adalah daftar perintah yang tersedia:
 • \`.set profile <pppoe|hotspot> <nama> <profil>\` - Ganti profil kecepatan.
 
 *Manajemen Alarm*
+• \`.set alarm cpu <nilai>\` - Atur alarm cpu (dalam persentase).
 • \`.set alarm pppoe <nilai>\` - Atur alarm traffic (dalam Mbps).
 • \`.list alarm\` - Lihat semua alarm aktif.
 • \`.delete alarm pppoe\` - Hapus alarm traffic PPPoE.
@@ -58,9 +60,10 @@ _Catatan: Perintah tidak case-sensitive, kecuali untuk nama aset/user._`;
 
         if (mainCommand === '.help') {
             await sendWhatsAppMessage(from, helpMessage);
-        } 
-        else if (text === '.ping') {
+        } else if (text === '.ping') {
             await sendWhatsAppMessage(from, templates.pong);
+        } else if (lowerCaseText === '.speedtest') {
+            await handleSpeedTest(workspaceId, from);
         } else if (text === '.odp total') {
             await handleAssetTotal(workspaceId, 'ODP', from);
         } else if (text === '.odc total') {
@@ -208,23 +211,45 @@ async function handleUserLocationCheck(workspaceId, userName, from) {
 }
 
 async function handleSetAlarm(workspaceId, args, from) {
-    if (args.length !== 4 || args[1] !== 'alarm') {
-        return await sendWhatsAppMessage(from, "Format salah. Gunakan: `.set alarm <tipe> <nilai>`\nContoh: `.set alarm pppoe 50`");
+    if (args.length < 3 || args[1] !== 'alarm') {
+        return await sendWhatsAppMessage(from, "Format salah. Gunakan: `.set alarm <tipe> [nilai]`");
     }
-    const type = `PPPOE_TRAFFIC`;
-    const threshold = parseInt(args[3], 10);
+    const type = args[2].toLowerCase();
+    
+    let alarmType, threshold = 1, unit = '';
+    
+    if (type === 'pppoe' || type === 'cpu') {
+        if (args.length !== 4) return await sendWhatsAppMessage(from, `Format salah. Gunakan: \`.set alarm ${type} <nilai>\``);
+        threshold = parseInt(args[3], 10);
+        if (isNaN(threshold) || threshold <= 0) return await sendWhatsAppMessage(from, `Nilai ambang batas harus berupa angka positif.`);
+        
+        if (type === 'pppoe') {
+            alarmType = 'PPPOE_TRAFFIC';
+            unit = 'Mbps';
+        } else {
+            alarmType = 'CPU_LOAD';
+            unit = '%';
+        }
+    } else if (type === 'device_offline' || type === 'offline') {
+        alarmType = 'DEVICE_OFFLINE';
+    } else {
+        return await sendWhatsAppMessage(from, "Tipe alarm tidak valid. Gunakan `pppoe`, `cpu`, atau `offline`.");
+    }
 
-    if (isNaN(threshold)) {
-        return await sendWhatsAppMessage(from, "Nilai ambang batas harus berupa angka (Mbps).");
-    }
     await pool.query(
         `INSERT INTO alarms (workspace_id, type, threshold_mbps) VALUES (?, ?, ?)
          ON DUPLICATE KEY UPDATE threshold_mbps=VALUES(threshold_mbps)`,
-        [workspaceId, type, threshold]
+        [workspaceId, alarmType, threshold]
     );
 
-    const reply = `✅ *Alarm Berhasil Diatur*\n\nBot akan memberitahu Anda jika ada traffic PPPoE yang melebihi *${threshold} Mbps*.`;
-    await sendWhatsAppMessage(from, reply);
+    let replyMessage = `✅ *Alarm Berhasil Diatur*\n\nBot akan memberitahu Anda jika *${type.replace('_', ' ').toUpperCase()}*`;
+    if (unit) {
+        replyMessage += ` melebihi *${threshold}${unit}*.`;
+    } else {
+        replyMessage += ` terdeteksi.`;
+    }
+    
+    await sendWhatsAppMessage(from, replyMessage);
 }
 
 async function handleListAlarms(workspaceId, args, from) {
@@ -449,5 +474,37 @@ async function handleGetLogs(workspaceId, topic, from) {
         await sendWhatsAppMessage(from, `❌ Terjadi kesalahan saat mengambil log: ${error.message}`);
     }
 }
+
+async function handleSpeedTest(workspaceId, from) {
+    try {
+        await sendWhatsAppMessage(from, `⏳ Mencari server speedtest terdekat... Mohon tunggu sebentar.`);
+        const servers = await runCommandForWorkspace(workspaceId, '/tool/speed-test/get-servers');
+        if (!servers || servers.length === 0) {
+            throw new Error("Tidak ada server speedtest yang ditemukan.");
+        }
+        const bestServer = servers[0];
+        await sendWhatsAppMessage(from, `🎯 Server ditemukan: *${bestServer.name}* di *${bestServer.country}*. Memulai pengetesan...`);
+        const testResults = await runCommandForWorkspace(workspaceId, '/tool/speed-test/run', [`=server-id=${bestServer.id}`]);
+        const result = testResults[0];
+
+        if (!result) {
+             throw new Error("Hasil tes tidak valid.");
+        }
+        const reply = `*Hasil Speedtest Selesai* 🚀
+
+Ping: *${result.ping_avg}* ms
+Jitter: *${result.jitter_avg}* ms
+Download: *${(parseInt(result.download_speed, 10) / 1000000).toFixed(2)}* Mbps
+Upload: *${(parseInt(result.upload_speed, 10) / 1000000).toFixed(2)}* Mbps
+Server: ${bestServer.name}, ${bestServer.country}`;
+
+        await sendWhatsAppMessage(from, reply);
+
+    } catch (error) {
+        console.error("SPEEDTEST ERROR:", error);
+        await sendWhatsAppMessage(from, `❌ Gagal melakukan speedtest: ${error.message}`);
+    }
+}
+
 
 module.exports = { handleCommand };

@@ -202,3 +202,38 @@ exports.getManagementPageData = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+exports.getSecretDetails = async (req, res) => {
+    const workspaceId = req.user.workspace_id;
+    const { name } = req.params;
+
+    if (!workspaceId) {
+        return res.status(400).json({ message: 'Workspace tidak valid.' });
+    }
+
+    try {
+        const secrets = await runCommandForWorkspace(workspaceId, '/ppp/secret/print', [`?name=${name}`]);
+        if (secrets.length === 0) {
+            return res.status(404).json({ message: `Pengguna PPPoE dengan nama "${name}" tidak ditemukan.` });
+        }
+        const secretInfo = secrets[0];
+        const [odpConnections] = await pool.query(
+            `SELECT na.name as odp_name, na.type as odp_type 
+             FROM odp_user_connections ouc
+             JOIN network_assets na ON ouc.asset_id = na.id
+             WHERE ouc.workspace_id = ? AND ouc.pppoe_secret_name = ?`,
+            [workspaceId, name]
+        );
+        const connectionInfo = odpConnections.length > 0 ? odpConnections[0] : null;
+        const responseData = {
+            secret: secretInfo,
+            connection: connectionInfo
+        };
+
+        res.json(responseData);
+
+    } catch (error) {
+        console.error(`Error getting details for secret ${name}:`, error);
+        res.status(500).json({ message: 'Gagal mengambil detail pengguna.', error: error.message });
+    }
+};

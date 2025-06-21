@@ -8,6 +8,7 @@ router.use(protect);
 router.get('/summary', pppoeController.getSummary);
 router.post('/secrets', pppoeController.addSecret);
 router.get('/secrets', pppoeController.getSecrets);
+router.get('/secrets/:name/details', pppoeController.getSecretDetails);
 router.get('/inactive-secrets', pppoeController.getInactiveSecrets);
 router.get('/profiles', pppoeController.getPppProfiles);
 router.get('/next-ip', pppoeController.getNextIp);

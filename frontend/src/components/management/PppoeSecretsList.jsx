@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useMikrotik } from '../../hooks/useMikrotik';
 import { Power, PowerOff, ArrowUp, ArrowDown, Search, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const useSortableData = (items, config = null) => {
     const [sortConfig, setSortConfig] = useState(config);
@@ -114,7 +115,11 @@ const PppoeSecretsList = ({ secretsData, loading, refreshData }) => {
                                     : (secret.isActive ? <span className="flex items-center gap-2 text-green-500"><Power size={14} /> Active</span> 
                                     : <span className="flex items-center gap-2 text-red-500"><PowerOff size={14} /> Inactive</span>)}
                                 </td>
-                                <td className="p-3 font-medium">{secret.name}</td>
+                                <td className="p-3 font-medium">
+                                    <Link to={`/management/pppoe/${secret.name}`} className="text-blue-600 hover:underline dark:text-blue-400">
+                                        {secret.name}
+                                    </Link>
+                                </td>
                                 <td className="p-3">{secret.service}</td>
                                 <td className="p-3">{secret.profile}</td>
                                 <td className="p-3 font-mono">{secret.remoteAddress}</td>

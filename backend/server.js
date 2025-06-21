@@ -29,6 +29,7 @@ const registrationRoutes = require('./src/routes/registrationRoutes');
 const workspaceRoutes = require('./src/routes/workspaceRoutes');
 const deviceRoutes = require('./src/routes/deviceRoutes');
 const botRoutes = require('./src/routes/botRoutes');
+const networkRoutes = require('./src/routes/networkRoutes');
 
 const { addConnection, removeConnection, getConnection } = require('./src/services/connectionManager');
 const { startWhatsApp } = require('./src/services/whatsappService');
@@ -43,7 +44,7 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 const allowedOrigins = [
-    'https://alinos-dashboard.my.id', // change your domain
+    'https://alinos-dashboard.my.id',
     'http://localhost:5173'
 ];
 app.use(cors({
@@ -69,6 +70,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/pppoe', pppoeRoutes);
 app.use('/api/assets', assetRoutes);
+app.use('/api/network', networkRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/clone', cloneRoutes);
 app.use('/api/hotspot', hotspotRoutes);
@@ -93,13 +95,61 @@ function stopWorkspaceMonitoring(workspaceId) {
     removeConnection(workspaceId);
 }
 
+async function checkAlarms(workspaceId, data, device) {
+    if (!alarmState.has(workspaceId)) {
+        alarmState.set(workspaceId, { cpuCooldown: 0, offlineCooldown: 0 });
+    }
+    const state = alarmState.get(workspaceId);
+    const now = Date.now();
+
+    const [alarms] = await pool.query('SELECT * FROM alarms WHERE workspace_id = ?', [workspaceId]);
+    const [owner] = await pool.query('SELECT u.whatsapp_number FROM users u JOIN workspaces w ON u.id = w.owner_id WHERE w.id = ?', [workspaceId]);
+    const waNumber = owner[0]?.whatsapp_number;
+
+    if (!waNumber) return;
+
+    for (const alarm of alarms) {
+        if (alarm.type === 'CPU_LOAD' && state.cpuCooldown < now) {
+            const cpuLoad = parseInt(data.resource['cpu-load'], 10) || 0;
+            if (cpuLoad > alarm.threshold_mbps) {
+                const message = `🚨 *ALARM CPU TINGGI* 🚨\n\nPerangkat *${device.name}* sedang mengalami lonjakan CPU mencapai *${cpuLoad}%*.\n\nSegera periksa kondisi perangkat Anda!`;
+                sendWhatsAppMessage(waNumber, message);
+                state.cpuCooldown = now + 15 * 60 * 1000;
+            }
+        }
+    }
+    alarmState.set(workspaceId, state);
+}
+
+async function notifyDeviceOffline(workspaceId, device) {
+    if (!alarmState.has(workspaceId)) {
+        alarmState.set(workspaceId, { cpuCooldown: 0, offlineCooldown: 0 });
+    }
+    const state = alarmState.get(workspaceId);
+    const now = Date.now();
+
+    if (state.offlineCooldown < now) {
+        const [alarms] = await pool.query('SELECT * FROM alarms WHERE workspace_id = ? AND type = "DEVICE_OFFLINE"', [workspaceId]);
+        if (alarms.length > 0) {
+            const [owner] = await pool.query('SELECT u.whatsapp_number FROM users u JOIN workspaces w ON u.id = w.owner_id WHERE w.id = ?', [workspaceId]);
+            const waNumber = owner[0]?.whatsapp_number;
+            if (waNumber) {
+                const message = `🚫 *PERANGKAT OFFLINE* 🚫\n\nAplikasi tidak dapat terhubung ke perangkat *${device.name}* (${device.host}).\n\nSilakan periksa koneksi atau kondisi perangkat.`;
+                sendWhatsAppMessage(waNumber, message);
+                state.offlineCooldown = now + 30 * 60 * 1000; // Cooldown 30 menit
+                alarmState.set(workspaceId, state);
+            }
+        }
+    }
+}
+
 async function startWorkspaceMonitoring(workspaceId) {
     if (getConnection(workspaceId)?.client?.connected) return;
     console.log(`[Manager] Mencoba memulai monitoring untuk workspace ID: ${workspaceId}`);
     
     let client;
     try {
-        const [workspaces] = await pool.query('SELECT active_device_id, owner_id FROM workspaces WHERE id = ?', [workspaceId]);
+        const [workspaces] = await pool.query('SELECT active_device_id FROM workspaces WHERE id = ?', [workspaceId]);
         if (!workspaces[0]?.active_device_id) {
             return broadcastToWorkspace(workspaceId, { type: 'config_error', message: 'Pilih perangkat aktif.' });
         }
@@ -111,6 +161,12 @@ async function startWorkspaceMonitoring(workspaceId) {
         
         const device = devices[0];
         client = new RouterOSAPI({ host: device.host, user: device.user, password: device.password, port: device.port, keepalive: true });
+        
+        client.on('error', (err) => {
+            console.error(`[RouterOSAPI Error] Workspace ID ${workspaceId}:`, err);
+            stopWorkspaceMonitoring(workspaceId);
+        });
+
         await client.connect();
         console.log(`[Manager] KONEKSI BERHASIL untuk workspace ID: ${workspaceId} ke ${device.name}`);
 
@@ -154,9 +210,9 @@ async function startWorkspaceMonitoring(workspaceId) {
 
                 const batchPayload = { resource, traffic: trafficUpdateBatch, hotspotActive: enrichedHotspotUsers };
                 broadcastToWorkspace(workspaceId, { type: 'batch-update', payload: batchPayload });
-                
+
             } catch (cycleError) {
-                console.error(`[Cycle Error] Workspace ID ${workspaceId}:`, cycleError.message);
+                console.error(`[Cycle Error] Terjadi error besar di workspace ID ${workspaceId}:`, cycleError.message);
                 stopWorkspaceMonitoring(workspaceId);
             }
         };
@@ -167,11 +223,14 @@ async function startWorkspaceMonitoring(workspaceId) {
 
     } catch (connectError) {
         console.error(`[Manager] GAGAL terhubung ke MikroTik untuk workspace ID ${workspaceId}:`, connectError.message);
+        if (device) {
+            notifyDeviceOffline(workspaceId, device);
+        }
+
         broadcastToWorkspace(workspaceId, { type: 'error', message: `Gagal terhubung ke perangkat` });
         if (client?.connected) client.close();
     }
 }
-
 wss.on('connection', async (ws, req) => {
     try {
         const cookieHeader = req.headers.cookie || '';

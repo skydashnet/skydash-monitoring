@@ -69,7 +69,7 @@ async function generateSingleAnalyticReport(workspace) {
         reportMessage += `> Puncak Aktivitas: ${busyTime}\n`;
         reportMessage += `> dengan *${peakTotalUsers}* pengguna & traffic *${formatSpeed(maxThroughput)}*\n\n`;
 
-        reportMessage += `* snapshot saat ini:*\n`;
+        reportMessage += `*📊 Snapshot saat ini:*\n`;
         reportMessage += `> PPPoE Aktif: *${snapshotData.pppoeActive}*\n`;
         reportMessage += `> Hotspot Aktif: *${snapshotData.hotspotActive}*\n\n`;
         
