@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: skydash-db
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_super_secret
+      MYSQL_DATABASE: skydash_db
+      MYSQL_USER: skydash_user
+      MYSQL_PASSWORD: user_password_secret
+    ports:
+      - "3307:3306"
+    volumes:
+      - skydash-db-data:/var/lib/mysql
+  backend:
+    image:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: skydash-backend
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - DB_HOST=db
+      - DB_USER=skydash_user
+      - DB_PASSWORD=user_password_secret
+      - DB_NAME=skydash_db
+      - JWT_SECRET=SECRETKEY
+    depends_on:
+      - db
+  frontend:
+    image:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: skydash-frontend
+    restart: always
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  skydash-db-data:
