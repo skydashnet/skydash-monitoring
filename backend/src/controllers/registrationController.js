@@ -63,8 +63,8 @@ exports.verifyOtpAndRegister = async (req, res) => {
         const defaultAvatarUrl = `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(userData.username)}`;
 
         const [result] = await pool.query(
-            'INSERT INTO users (username, display_name, password_hash, profile_picture_url) VALUES (?, ?, ?, ?)',
-            [userData.username, userData.display_name, userData.password_hash, defaultAvatarUrl]
+        'INSERT INTO users (username, display_name, password_hash, profile_picture_url, whatsapp_number) VALUES (?, ?, ?, ?, ?)',
+        [userData.username, userData.display_name, userData.password_hash, defaultAvatarUrl, userData.whatsapp_number]
         );
         
         await pool.query('DELETE FROM pending_registrations WHERE whatsapp_number = ?', [normalizedWhatsapp]);
