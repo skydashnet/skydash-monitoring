@@ -24,19 +24,21 @@ const sessionRoutes = require('./src/routes/sessionRoutes');
 const cloneRoutes = require('./src/routes/cloneRoutes');
 const hotspotRoutes = require('./src/routes/hotspotRoutes');
 const importRoutes = require('./src/routes/importRoutes');
-const ipPoolRoutes = require('./src/routes/ipPoolRoutes');
 const registrationRoutes = require('./src/routes/registrationRoutes');
 const workspaceRoutes = require('./src/routes/workspaceRoutes');
 const deviceRoutes = require('./src/routes/deviceRoutes');
+const ipPoolRoutes = require('./src/routes/ipPoolRoutes');
 const botRoutes = require('./src/routes/botRoutes');
 const networkRoutes = require('./src/routes/networkRoutes');
 
 const { addConnection, removeConnection, getConnection } = require('./src/services/connectionManager');
-const { startWhatsApp } = require('./src/services/whatsappService');
+const { startWhatsApp, sendWhatsAppMessage } = require('./src/services/whatsappService');
+const { runCommandForWorkspace } = require('./src/utils/apiConnection');
 const { handleCommand } = require('./src/bot/commandHandler');
 const { generateAndSendDailyReports } = require('./src/bot/reportGenerator');
 const { logAllActiveWorkspaces } = require('./src/bot/dataLogger');
 
+const activeUsersState = new Map();
 const alarmState = new Map();
 
 const app = express();
@@ -70,32 +72,45 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/pppoe', pppoeRoutes);
 app.use('/api/assets', assetRoutes);
-app.use('/api/network', networkRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/clone', cloneRoutes);
 app.use('/api/hotspot', hotspotRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/register', registrationRoutes);
 app.use('/api/workspaces', workspaceRoutes);
-app.use('/api/ip-pools', ipPoolRoutes);
 app.use('/api/devices', deviceRoutes);
+app.use('/api/ip-pools', ipPoolRoutes);
+app.use('/api/network', networkRoutes);
 app.use('/api/bot', botRoutes);
 
 const wss = new WebSocket.Server({ server, path: "/ws" });
 
-function broadcastToWorkspace(workspaceId, data) {
-    wss.clients.forEach((client) => {
-        if (client.workspaceId === workspaceId && client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(data));
+async function processSlaEvents(workspaceId, currentActiveUsers) {
+    const previousActiveUsers = activeUsersState.get(workspaceId) || new Set();
+    const currentActiveUserSet = new Set(currentActiveUsers.map(u => u.name));
+    for (const user of previousActiveUsers) {
+        if (!currentActiveUserSet.has(user)) {
+            await pool.query(
+                'INSERT INTO downtime_events (workspace_id, pppoe_user, start_time) VALUES (?, ?, NOW())',
+                [workspaceId, user]
+            ).catch(err => console.error(`[SLA DB Error] Gagal mencatat start_time untuk ${user}:`, err));
         }
-    });
+    }
+    for (const user of currentActiveUserSet) {
+        if (!previousActiveUsers.has(user)) {
+            await pool.query(
+                `UPDATE downtime_events 
+                 SET end_time = NOW(), duration_seconds = TIMESTAMPDIFF(SECOND, start_time, NOW()) 
+                 WHERE workspace_id = ? AND pppoe_user = ? AND end_time IS NULL 
+                 ORDER BY start_time DESC LIMIT 1`,
+                [workspaceId, user]
+            ).catch(err => console.error(`[SLA DB Error] Gagal mencatat end_time untuk ${user}:`, err));
+        }
+    }
+    activeUsersState.set(workspaceId, currentActiveUserSet);
 }
 
-function stopWorkspaceMonitoring(workspaceId) {
-    removeConnection(workspaceId);
-}
-
-async function checkAlarms(workspaceId, data, device) {
+async function checkAlarms(workspaceId, resource, device) {
     if (!alarmState.has(workspaceId)) {
         alarmState.set(workspaceId, { cpuCooldown: 0, offlineCooldown: 0 });
     }
@@ -110,7 +125,7 @@ async function checkAlarms(workspaceId, data, device) {
 
     for (const alarm of alarms) {
         if (alarm.type === 'CPU_LOAD' && state.cpuCooldown < now) {
-            const cpuLoad = parseInt(data.resource['cpu-load'], 10) || 0;
+            const cpuLoad = parseInt(resource['cpu-load'], 10) || 0;
             if (cpuLoad > alarm.threshold_mbps) {
                 const message = `🚨 *ALARM CPU TINGGI* 🚨\n\nPerangkat *${device.name}* sedang mengalami lonjakan CPU mencapai *${cpuLoad}%*.\n\nSegera periksa kondisi perangkat Anda!`;
                 sendWhatsAppMessage(waNumber, message);
@@ -136,18 +151,38 @@ async function notifyDeviceOffline(workspaceId, device) {
             if (waNumber) {
                 const message = `🚫 *PERANGKAT OFFLINE* 🚫\n\nAplikasi tidak dapat terhubung ke perangkat *${device.name}* (${device.host}).\n\nSilakan periksa koneksi atau kondisi perangkat.`;
                 sendWhatsAppMessage(waNumber, message);
-                state.offlineCooldown = now + 30 * 60 * 1000; // Cooldown 30 menit
+                state.offlineCooldown = now + 30 * 60 * 1000;
                 alarmState.set(workspaceId, state);
             }
         }
     }
 }
 
+function broadcastToWorkspace(workspaceId, data) {
+    wss.clients.forEach((client) => {
+        if (client.workspaceId === workspaceId && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(data));
+        }
+    });
+}
+
+function stopWorkspaceMonitoring(workspaceId) {
+    const connection = getConnection(workspaceId);
+    if (connection) {
+        console.log(`[Manager] Menghentikan monitoring untuk workspace ID: ${workspaceId}`);
+        clearInterval(connection.intervalId);
+        if (connection.client && connection.client.connected) connection.client.close();
+        removeConnection(workspaceId);
+    }
+}
+
+
 async function startWorkspaceMonitoring(workspaceId) {
     if (getConnection(workspaceId)?.client?.connected) return;
     console.log(`[Manager] Mencoba memulai monitoring untuk workspace ID: ${workspaceId}`);
     
     let client;
+    let device;
     try {
         const [workspaces] = await pool.query('SELECT active_device_id FROM workspaces WHERE id = ?', [workspaceId]);
         if (!workspaces[0]?.active_device_id) {
@@ -159,7 +194,7 @@ async function startWorkspaceMonitoring(workspaceId) {
             return broadcastToWorkspace(workspaceId, { type: 'config_error', message: 'Perangkat aktif tidak ditemukan.' });
         }
         
-        const device = devices[0];
+        device = devices[0];
         client = new RouterOSAPI({ host: device.host, user: device.user, password: device.password, port: device.port, keepalive: true });
         
         client.on('error', (err) => {
@@ -170,18 +205,42 @@ async function startWorkspaceMonitoring(workspaceId) {
         await client.connect();
         console.log(`[Manager] KONEKSI BERHASIL untuk workspace ID: ${workspaceId} ke ${device.name}`);
 
-        const runMonitoringCycle = async () => {
-            if (!client?.connected) { stopWorkspaceMonitoring(workspaceId); return; }
-            try {
-                let resource = {}, activePppoeUsers = [], allInterfaces = [], activeHotspotUsers = [], simpleQueues = [];
+        try {
+            const initialActiveUsers = await runCommandForWorkspace(workspaceId, '/ppp/active/print', ['?service=pppoe']);
+            activeUsersState.set(workspaceId, new Set(initialActiveUsers.map(u => u.name)));
+            console.log(`[SLA] Inisialisasi state berhasil untuk workspace ${workspaceId} dengan ${initialActiveUsers.length} user aktif.`);
+        } catch (e) {
+            console.error(`[SLA] Gagal inisialisasi state untuk workspace ${workspaceId}: ${e.message}`);
+            activeUsersState.set(workspaceId, new Set());
+        }
 
-                try { resource = (await client.write('/system/resource/print'))[0] || {}; } catch(e) {}
-                try { activePppoeUsers = await client.write('/ppp/active/print', ['?service=pppoe']); } catch(e) {}
-                try { allInterfaces = await client.write('/interface/print'); } catch(e) {}
-                try { activeHotspotUsers = await client.write('/ip/hotspot/active/print'); } catch(e) {}
-                try { simpleQueues = await client.write('/queue/simple/print'); } catch(e) {}
+        const runMonitoringCycle = async () => {
+            if (!client?.connected) { 
+                console.log(`[Cycle] Koneksi untuk workspace ${workspaceId} sudah terputus. Menghentikan cycle.`);
+                stopWorkspaceMonitoring(workspaceId);
+                return;
+            }
+
+            try {
+                const [resourceResult, activePppoeUsers, allInterfaces, activeHotspotUsers, simpleQueues] = await Promise.all([
+                    client.write('/system/resource/print').catch(e => { console.error(`[Cycle Error] Gagal get resource: ${e.message}`); return [{}]; }),
+                    client.write('/ppp/active/print', ['?service=pppoe']).catch(e => { console.error(`[Cycle Error] Gagal get ppp active: ${e.message}`); return []; }),
+                    client.write('/interface/print').catch(e => { console.error(`[Cycle Error] Gagal get interface: ${e.message}`); return []; }),
+                    client.write('/ip/hotspot/active/print').catch(e => { console.error(`[Cycle Error] Gagal get hotspot active: ${e.message}`); return []; }),
+                    client.write('/queue/simple/print').catch(e => { console.error(`[Cycle Error] Gagal get queue: ${e.message}`); return []; })
+                ]);
+                
+                const resource = resourceResult[0] || {};
+                
+                processSlaEvents(workspaceId, activePppoeUsers);
+
+                if (Object.keys(resource).length > 0) {
+                    checkAlarms(workspaceId, resource, device);
+                }
+
                 const pppoeInterfaces = activePppoeUsers.map(user => `<pppoe-${user.name}>`);
-                const etherInterfaces = allInterfaces.filter(iface => iface.type === 'ether').map(iface => iface.name);
+                const etherInterfaces = allInterfaces.filter(iface => iface.type === 'ether' || iface.type === 'wlan').map(iface => iface.name);
+                
                 const trafficPromises = [...etherInterfaces, ...pppoeInterfaces].map(async (ifaceName) => {
                     try {
                         const [[trafficDetails], [interfaceDetails]] = await Promise.all([
@@ -195,8 +254,12 @@ async function startWorkspaceMonitoring(workspaceId) {
                             if (pppUser) remoteAddress = pppUser.address;
                         }
                         return { interface: ifaceName, data: { ...trafficDetails, 'rx-byte': interfaceDetails?.['rx-byte'] || '0', 'tx-byte': interfaceDetails?.['tx-byte'] || '0', ...(remoteAddress && { address: remoteAddress }) }};
-                    } catch (e) { return null; }
+                    } catch (e) {
+                         console.error(`[Cycle Error] Gagal monitor traffic untuk ${ifaceName}: ${e.message}`);
+                         return null;
+                    }
                 });
+
                 const queueMap = new Map(simpleQueues.map(q => [q.target.split('/')[0], q]));
                 const enrichedHotspotUsers = activeHotspotUsers.map(user => {
                     const queue = queueMap.get(user.address);
@@ -210,19 +273,19 @@ async function startWorkspaceMonitoring(workspaceId) {
 
                 const batchPayload = { resource, traffic: trafficUpdateBatch, hotspotActive: enrichedHotspotUsers };
                 broadcastToWorkspace(workspaceId, { type: 'batch-update', payload: batchPayload });
-
+                
             } catch (cycleError) {
                 console.error(`[Cycle Error] Terjadi error besar di workspace ID ${workspaceId}:`, cycleError.message);
                 stopWorkspaceMonitoring(workspaceId);
             }
         };
 
-        const intervalId = setInterval(runMonitoringCycle, 2000);
+        const intervalId = setInterval(runMonitoringCycle, 3000); 
         addConnection(workspaceId, { client, intervalId });
-        runMonitoringCycle();
 
     } catch (connectError) {
         console.error(`[Manager] GAGAL terhubung ke MikroTik untuk workspace ID ${workspaceId}:`, connectError.message);
+        
         if (device) {
             notifyDeviceOffline(workspaceId, device);
         }
@@ -231,6 +294,7 @@ async function startWorkspaceMonitoring(workspaceId) {
         if (client?.connected) client.close();
     }
 }
+
 wss.on('connection', async (ws, req) => {
     try {
         const cookieHeader = req.headers.cookie || '';

@@ -12,6 +12,7 @@ router.get('/secrets/:name/details', pppoeController.getSecretDetails);
 router.get('/inactive-secrets', pppoeController.getInactiveSecrets);
 router.get('/profiles', pppoeController.getPppProfiles);
 router.get('/next-ip', pppoeController.getNextIp);
+router.get('/secrets/:name/sla', pppoeController.getSlaDetails);
 router.get('/secrets/unassigned', pppoeController.getUnassignedSecrets);
 router.post('/odp/:odpId/assign-user', pppoeController.assignUserToOdp); 
 router.get('/odp/:id/connected-users', pppoeController.getConnectedUsers);

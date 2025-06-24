@@ -3,7 +3,6 @@ const pool = require('../config/database');
 const ipToLong = (ip) => ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0);
 const longToIp = (long) => [(long >>> 24), (long >>> 16) & 255, (long >>> 8) & 255, long & 255].join('.');
 
-
 exports.getSummary = async (req, res) => {
     const workspaceId = req.user.workspace_id;
     if (!workspaceId) return res.json({ total: 0, active: 0, inactive: 0 });
@@ -217,6 +216,7 @@ exports.getSecretDetails = async (req, res) => {
             return res.status(404).json({ message: `Pengguna PPPoE dengan nama "${name}" tidak ditemukan.` });
         }
         const secretInfo = secrets[0];
+
         const [odpConnections] = await pool.query(
             `SELECT na.name as odp_name, na.type as odp_type 
              FROM odp_user_connections ouc
@@ -225,6 +225,7 @@ exports.getSecretDetails = async (req, res) => {
             [workspaceId, name]
         );
         const connectionInfo = odpConnections.length > 0 ? odpConnections[0] : null;
+
         const responseData = {
             secret: secretInfo,
             connection: connectionInfo
@@ -235,5 +236,51 @@ exports.getSecretDetails = async (req, res) => {
     } catch (error) {
         console.error(`Error getting details for secret ${name}:`, error);
         res.status(500).json({ message: 'Gagal mengambil detail pengguna.', error: error.message });
+    }
+};
+
+exports.getSlaDetails = async (req, res) => {
+    const { name } = req.params;
+    const workspaceId = req.user.workspace_id;
+
+    if (!workspaceId) {
+        return res.status(400).json({ message: 'Workspace tidak valid.' });
+    }
+
+    try {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        const [downtimeResult] = await pool.query(
+            `SELECT COALESCE(SUM(duration_seconds), 0) as total_downtime
+             FROM downtime_events 
+             WHERE workspace_id = ? AND pppoe_user = ? AND start_time >= ?`,
+            [workspaceId, name, thirtyDaysAgo]
+        );
+        const totalDowntimeSeconds = downtimeResult[0].total_downtime;
+
+        const totalSecondsInPeriod = 30 * 24 * 60 * 60;
+        
+        const uptimeSeconds = totalSecondsInPeriod - totalDowntimeSeconds;
+        const slaPercentage = (uptimeSeconds / totalSecondsInPeriod) * 100;
+
+        const [downtimeEvents] = await pool.query(
+            `SELECT start_time, duration_seconds 
+             FROM downtime_events 
+             WHERE workspace_id = ? AND pppoe_user = ? AND end_time IS NOT NULL
+             ORDER BY start_time DESC 
+             LIMIT 5`,
+            [workspaceId, name]
+        );
+
+        res.json({
+            sla_percentage: slaPercentage.toFixed(4),
+            total_downtime_seconds: totalDowntimeSeconds,
+            recent_events: downtimeEvents
+        });
+
+    } catch (error) {
+        console.error(`Error getting SLA details for ${name}:`, error);
+        res.status(500).json({ message: 'Gagal mengambil detail SLA.', error: error.message });
     }
 };
