@@ -46,7 +46,6 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 const allowedOrigins = [
-    'https://alinos-dashboard.my.id',
     'http://localhost:5173'
 ];
 app.use(cors({
