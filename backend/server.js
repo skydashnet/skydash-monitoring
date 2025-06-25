@@ -33,12 +33,10 @@ const networkRoutes = require('./src/routes/networkRoutes');
 
 const { addConnection, removeConnection, getConnection } = require('./src/services/connectionManager');
 const { startWhatsApp, sendWhatsAppMessage } = require('./src/services/whatsappService');
-const { runCommandForWorkspace } = require('./src/utils/apiConnection');
 const { handleCommand } = require('./src/bot/commandHandler');
 const { generateAndSendDailyReports } = require('./src/bot/reportGenerator');
 const { logAllActiveWorkspaces } = require('./src/bot/dataLogger');
 
-const activeUsersState = new Map();
 const alarmState = new Map();
 
 const app = express();
@@ -46,6 +44,7 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 const allowedOrigins = [
+    'https://alinos-dashboard.my.id', 
     'http://localhost:5173'
 ];
 app.use(cors({
@@ -84,29 +83,58 @@ app.use('/api/bot', botRoutes);
 
 const wss = new WebSocket.Server({ server, path: "/ws" });
 
-async function processSlaEvents(workspaceId, currentActiveUsers) {
-    const previousActiveUsers = activeUsersState.get(workspaceId) || new Set();
-    const currentActiveUserSet = new Set(currentActiveUsers.map(u => u.name));
-    for (const user of previousActiveUsers) {
-        if (!currentActiveUserSet.has(user)) {
+/**
+ * @param {number}
+ * @param {Array}
+ */
+async function processSlaEvents(workspaceId, currentActiveUsersFromMikrotik) {
+    const [usersFromDb] = await pool.query(
+        'SELECT pppoe_user, is_active FROM pppoe_user_status WHERE workspace_id = ?',
+        [workspaceId]
+    );
+
+    const dbStatusMap = new Map(usersFromDb.map(u => [u.pppoe_user, u.is_active]));
+    const currentActiveUserSet = new Set(currentActiveUsersFromMikrotik.map(u => u.name));
+
+    for (const user of usersFromDb) {
+        if (user.is_active && !currentActiveUserSet.has(user.pppoe_user)) {
+            console.log(`[SLA Logger] User ${user.pppoe_user} terdeteksi offline.`);
+            const [openEvents] = await pool.query(
+                'SELECT id FROM downtime_events WHERE workspace_id = ? AND pppoe_user = ? AND end_time IS NULL',
+                [workspaceId, user.pppoe_user]
+            );
+
+            if (openEvents.length === 0) {
+                await pool.query(
+                    'INSERT INTO downtime_events (workspace_id, pppoe_user, start_time) VALUES (?, ?, NOW())',
+                    [workspaceId, user.pppoe_user]
+                );
+            }
+           
             await pool.query(
-                'INSERT INTO downtime_events (workspace_id, pppoe_user, start_time) VALUES (?, ?, NOW())',
-                [workspaceId, user]
-            ).catch(err => console.error(`[SLA DB Error] Gagal mencatat start_time untuk ${user}:`, err));
+                'UPDATE pppoe_user_status SET is_active = FALSE WHERE workspace_id = ? AND pppoe_user = ?',
+                [workspaceId, user.pppoe_user]
+            );
         }
     }
     for (const user of currentActiveUserSet) {
-        if (!previousActiveUsers.has(user)) {
+        const lastDbStatus = dbStatusMap.get(user);
+        if (lastDbStatus === false || lastDbStatus === undefined) {
+            console.log(`[SLA Logger] User ${user} terdeteksi online.`);
             await pool.query(
-                `UPDATE downtime_events 
-                 SET end_time = NOW(), duration_seconds = TIMESTAMPDIFF(SECOND, start_time, NOW()) 
-                 WHERE workspace_id = ? AND pppoe_user = ? AND end_time IS NULL 
-                 ORDER BY start_time DESC LIMIT 1`,
+                `UPDATE downtime_events SET end_time = NOW(), duration_seconds = TIMESTAMPDIFF(SECOND, start_time, NOW())
+                 WHERE workspace_id = ? AND pppoe_user = ? AND end_time IS NULL ORDER BY start_time DESC LIMIT 1`,
                 [workspaceId, user]
-            ).catch(err => console.error(`[SLA DB Error] Gagal mencatat end_time untuk ${user}:`, err));
+            );
+            await pool.query(
+                `INSERT INTO pppoe_user_status (workspace_id, pppoe_user, is_active, last_seen_active) VALUES (?, ?, TRUE, NOW())
+                 ON DUPLICATE KEY UPDATE is_active = TRUE, last_seen_active = NOW()`,
+                [workspaceId, user]
+            );
+        } else {
+            await pool.query('UPDATE pppoe_user_status SET last_seen_active = NOW() WHERE workspace_id = ? AND pppoe_user = ?', [workspaceId, user]);
         }
     }
-    activeUsersState.set(workspaceId, currentActiveUserSet);
 }
 
 async function checkAlarms(workspaceId, resource, device) {
@@ -203,15 +231,6 @@ async function startWorkspaceMonitoring(workspaceId) {
 
         await client.connect();
         console.log(`[Manager] KONEKSI BERHASIL untuk workspace ID: ${workspaceId} ke ${device.name}`);
-
-        try {
-            const initialActiveUsers = await runCommandForWorkspace(workspaceId, '/ppp/active/print', ['?service=pppoe']);
-            activeUsersState.set(workspaceId, new Set(initialActiveUsers.map(u => u.name)));
-            console.log(`[SLA] Inisialisasi state berhasil untuk workspace ${workspaceId} dengan ${initialActiveUsers.length} user aktif.`);
-        } catch (e) {
-            console.error(`[SLA] Gagal inisialisasi state untuk workspace ${workspaceId}: ${e.message}`);
-            activeUsersState.set(workspaceId, new Set());
-        }
 
         const runMonitoringCycle = async () => {
             if (!client?.connected) { 
@@ -366,3 +385,6 @@ server.listen(PORT, () => {
     });
     console.log('[Scheduler] Pencatat data statistik setiap 15 menit telah diaktifkan.');
 });
+
+const { errorHandler } = require('./src/middleware/errorMiddleware');
+app.use(errorHandler);

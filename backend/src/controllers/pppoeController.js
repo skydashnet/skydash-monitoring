@@ -1,30 +1,50 @@
+let RouterOSAPI = require('node-routeros');
+if (RouterOSAPI.RouterOSAPI) {
+    RouterOSAPI = RouterOSAPI.RouterOSAPI;
+}
 const { runCommandForWorkspace } = require('../utils/apiConnection');
 const pool = require('../config/database');
 const ipToLong = (ip) => ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0);
 const longToIp = (long) => [(long >>> 24), (long >>> 16) & 255, (long >>> 8) & 255, long & 255].join('.');
 
-exports.getSummary = async (req, res) => {
-    const workspaceId = req.user.workspace_id;
-    if (!workspaceId) return res.json({ total: 0, active: 0, inactive: 0 });
-    try {
-        const [secrets, active] = await Promise.all([
-            runCommandForWorkspace(workspaceId, '/ppp/secret/print', ['?service=pppoe']),
-            runCommandForWorkspace(workspaceId, '/ppp/active/print', ['?service=pppoe'])
-        ]);
-        res.json({ total: secrets.length, active: active.length, inactive: secrets.length - active.length });
-    } catch (error) { res.status(500).json({ message: error.message }); }
+const getTempMikrotikClient = async (workspaceId) => {
+    const [devices] = await pool.query('SELECT * FROM mikrotik_devices WHERE id = (SELECT active_device_id FROM workspaces WHERE id = ?)', [workspaceId]);
+    if (devices.length === 0) throw new Error('Perangkat aktif tidak ditemukan untuk workspace ini.');
+    const device = devices[0];
+    const client = new RouterOSAPI({ host: device.host, user: device.user, password: device.password, port: device.port });
+    await client.connect();
+    return client;
 };
 
-exports.getSecrets = async (req, res) => {
+exports.getSummary = async (req, res, next) => {
+    const workspaceId = req.user.workspace_id;
+    if (!workspaceId) return res.json({ total: 0, active: 0, inactive: 0 });
+
+    let client;
+    try {
+        client = await getTempMikrotikClient(workspaceId);
+        const [secrets, active] = await Promise.all([
+            client.write('/ppp/secret/print', ['?service=pppoe']),
+            client.write('/ppp/active/print', ['?service=pppoe'])
+        ]);
+        client.close();
+        res.json({ total: secrets.length, active: active.length, inactive: secrets.length - active.length });
+    } catch (error) {
+        if(client) client.close();
+        next(error);
+    }
+};
+
+exports.getSecrets = async (req, res, next) => {
     const workspaceId = req.user.workspace_id;
     if (!workspaceId) return res.json([]);
     try {
         const secrets = await runCommandForWorkspace(workspaceId, '/ppp/secret/print');
         res.json(secrets);
-    } catch (error) { res.status(500).json({ message: 'Gagal mengambil daftar secrets', error: error.message }); }
+    } catch (error) { next(error); }
 };
 
-exports.addSecret = async (req, res) => {
+exports.addSecret = async (req, res, next) => {
     const workspaceId = req.user.workspace_id;
     const { name, password, profile, service, localAddress, remoteAddress } = req.body;
     if (!name || !password || !profile) return res.status(400).json({ message: 'Nama, password, dan profile harus diisi.' });
@@ -34,10 +54,10 @@ exports.addSecret = async (req, res) => {
         if (remoteAddress) params.push(`=remote-address=${remoteAddress}`);
         await runCommandForWorkspace(workspaceId, '/ppp/secret/add', params);
         res.status(201).json({ message: `Secret untuk pengguna ${name} berhasil dibuat.` });
-    } catch (error) { res.status(500).json({ message: 'Gagal menambah secret', error: error.message }); }
+    } catch (error) { next(error); }
 };
 
-exports.getUnassignedSecrets = async (req, res) => {
+exports.getUnassignedSecrets = async (req, res, next) => {
     const workspaceId = req.user.workspace_id;
     if (!workspaceId) return res.json([]);
     
@@ -50,34 +70,40 @@ exports.getUnassignedSecrets = async (req, res) => {
         const unassigned = allSecretsFromMikrotik.filter(s => !assignedNames.has(s.name));
         res.json(unassigned);
     } catch (error) {
-        res.status(500).json({ message: 'Gagal mengambil secrets yang belum terhubung', error: error.message });
+        next(error);
     }
 };
 
-exports.getInactiveSecrets = async (req, res) => {
+exports.getInactiveSecrets = async (req, res, next) => {
     const workspaceId = req.user.workspace_id;
     if (!workspaceId) return res.json([]);
+    let client;
     try {
+        client = await getTempMikrotikClient(workspaceId);
         const [secrets, activeSessions] = await Promise.all([
-            runCommandForWorkspace(workspaceId, '/ppp/secret/print', ['?service=pppoe']),
-            runCommandForWorkspace(workspaceId, '/ppp/active/print', ['?service=pppoe'])
+            client.write('/ppp/secret/print', ['?service=pppoe']),
+            client.write('/ppp/active/print', ['?service=pppoe'])
         ]);
+        client.close();
         const activeUsernames = new Set(activeSessions.map(session => session.name));
-        const inactiveSecrets = secrets.filter(secret => !activeUsernames.has(secret.name));
+        const inactiveSecrets = secrets.filter(secret => !activeUsernames.has(secret.name) && secret.disabled !== 'true');
         res.json(inactiveSecrets);
-    } catch (error) { res.status(500).json({ message: 'Gagal mengambil daftar secrets tidak aktif', error: error.message }); }
+    } catch (error) { 
+        if(client) client.close();
+        next(error);
+    }
 };
 
-exports.getPppProfiles = async (req, res) => {
+exports.getPppProfiles = async (req, res, next) => {
     const workspaceId = req.user.workspace_id;
     if (!workspaceId) return res.json([]);
     try {
         const profiles = await runCommandForWorkspace(workspaceId, '/ppp/profile/print');
         res.json(profiles.map(p => p.name));
-    } catch (error) { res.status(500).json({ message: 'Gagal mengambil profil PPP', error: error.message }); }
+    } catch (error) { next(error); }
 };
 
-exports.getNextIp = async (req, res) => {
+exports.getNextIp = async (req, res, next) => {
     const { profile } = req.query;
     const workspaceId = req.user.workspace_id;
     if (!workspaceId || !profile) {
@@ -112,11 +138,11 @@ exports.getNextIp = async (req, res) => {
         });
 
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        next(error);
     }
 };
 
-exports.assignUserToOdp = async (req, res) => {
+exports.assignUserToOdp = async (req, res, next) => {
     const { pppoe_secret_name } = req.body;
     const { odpId } = req.params;
     const workspaceId = req.user.workspace_id;
@@ -128,25 +154,25 @@ exports.assignUserToOdp = async (req, res) => {
         if (error.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({ message: `Pengguna ${pppoe_secret_name} sudah terhubung ke ODP lain.` });
         }
-        res.status(500).json({ message: 'Gagal menghubungkan pengguna', error: error.message });
+        next(error);
     }
 };
 
-exports.getConnectedUsers = async (req, res) => {
+exports.getConnectedUsers = async (req, res, next) => {
     const { id: odpId } = req.params;
     const workspaceId = req.user.workspace_id;
     if (!workspaceId) return res.json([]);
     try {
         const [connections] = await pool.query('SELECT pppoe_secret_name as name, id FROM odp_user_connections WHERE asset_id = ? AND workspace_id = ?', [odpId, workspaceId]);
         res.json(connections);
-    } catch (error) { res.status(500).json({ message: 'Gagal mengambil pengguna yang terhubung', error: error.message }); }
+    } catch (error) { next(error); }
 };
 
-exports.updateSecret = (req, res) => {
+exports.updateSecret = (req, res, next) => {
     res.status(501).json({ message: 'Fungsi update secret belum diimplementasikan.' });
 };
 
-exports.setSecretStatus = async (req, res) => {
+exports.setSecretStatus = async (req, res, next) => {
     const workspaceId = req.user.workspace_id;
     const { id } = req.params;
     const { disabled } = req.body;
@@ -158,11 +184,11 @@ exports.setSecretStatus = async (req, res) => {
         ]);
         res.status(200).json({ message: `Secret berhasil di-${disabled === 'true' ? 'disable' : 'enable'}.` });
     } catch (error) {
-        res.status(500).json({ message: 'Gagal mengubah status secret.', error: error.message });
+        next(error);
     }
 };
 
-exports.kickActiveUser = async (req, res) => {
+exports.kickActiveUser = async (req, res, next) => {
     const workspaceId = req.user.workspace_id;
     const { id } = req.params;
 
@@ -175,20 +201,23 @@ exports.kickActiveUser = async (req, res) => {
         if (error.message.includes('no such item')) {
             return res.status(404).json({ message: 'Koneksi aktif tidak ditemukan. Mungkin pengguna sudah disconnect.' });
         }
-        res.status(500).json({ message: 'Gagal memutuskan koneksi.', error: error.message });
+        next(error);
     }
 };
 
-exports.getManagementPageData = async (req, res) => {
+exports.getManagementPageData = async (req, res, next) => {
     const workspaceId = req.user.workspace_id;
     if (!workspaceId) {
         return res.json({ summary: { total: 0, active: 0, inactive: 0 }, secrets: [] });
     }
+    let client;
     try {
+        client = await getTempMikrotikClient(workspaceId);
         const [secrets, active] = await Promise.all([
-            runCommandForWorkspace(workspaceId, '/ppp/secret/print'),
-            runCommandForWorkspace(workspaceId, '/ppp/active/print', ['?service=pppoe'])
+            client.write('/ppp/secret/print'),
+            client.write('/ppp/active/print', ['?service=pppoe'])
         ]);
+        client.close();
 
         const summary = {
             total: secrets.length,
@@ -198,11 +227,12 @@ exports.getManagementPageData = async (req, res) => {
         
         res.json({ summary, secrets });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        if(client) client.close();
+        next(error);
     }
 };
 
-exports.getSecretDetails = async (req, res) => {
+exports.getSecretDetails = async (req, res, next) => {
     const workspaceId = req.user.workspace_id;
     const { name } = req.params;
 
@@ -234,12 +264,11 @@ exports.getSecretDetails = async (req, res) => {
         res.json(responseData);
 
     } catch (error) {
-        console.error(`Error getting details for secret ${name}:`, error);
-        res.status(500).json({ message: 'Gagal mengambil detail pengguna.', error: error.message });
+        next(error);
     }
 };
 
-exports.getSlaDetails = async (req, res) => {
+exports.getSlaDetails = async (req, res, next) => {
     const { name } = req.params;
     const workspaceId = req.user.workspace_id;
 
@@ -252,25 +281,36 @@ exports.getSlaDetails = async (req, res) => {
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         
         const [downtimeResult] = await pool.query(
-            `SELECT COALESCE(SUM(duration_seconds), 0) as total_downtime
-             FROM downtime_events 
-             WHERE workspace_id = ? AND pppoe_user = ? AND start_time >= ?`,
-            [workspaceId, name, thirtyDaysAgo]
+            `SELECT COALESCE(SUM(total_duration), 0) as total_downtime
+            FROM (
+                SELECT duration_seconds as total_duration
+                FROM downtime_events
+                WHERE workspace_id = ? AND pppoe_user = ? AND start_time >= ? AND end_time IS NOT NULL
+                
+                UNION ALL
+
+                SELECT TIMESTAMPDIFF(SECOND, start_time, NOW()) as total_duration
+                FROM downtime_events
+                WHERE workspace_id = ? AND pppoe_user = ? AND start_time >= ? AND end_time IS NULL
+            ) as combined_downtime`,
+            [workspaceId, name, thirtyDaysAgo, workspaceId, name, thirtyDaysAgo]
         );
-        const totalDowntimeSeconds = downtimeResult[0].total_downtime;
+        const totalDowntimeSeconds = parseInt(downtimeResult[0].total_downtime, 10);
 
         const totalSecondsInPeriod = 30 * 24 * 60 * 60;
-        
         const uptimeSeconds = totalSecondsInPeriod - totalDowntimeSeconds;
         const slaPercentage = (uptimeSeconds / totalSecondsInPeriod) * 100;
 
         const [downtimeEvents] = await pool.query(
-            `SELECT start_time, duration_seconds 
+            `SELECT 
+                start_time, 
+                COALESCE(duration_seconds, TIMESTAMPDIFF(SECOND, start_time, NOW())) as duration_seconds,
+                (end_time IS NULL) as is_ongoing
              FROM downtime_events 
-             WHERE workspace_id = ? AND pppoe_user = ? AND end_time IS NOT NULL
+             WHERE workspace_id = ? AND pppoe_user = ? AND start_time >= ?
              ORDER BY start_time DESC 
              LIMIT 5`,
-            [workspaceId, name]
+            [workspaceId, name, thirtyDaysAgo]
         );
 
         res.json({
@@ -280,7 +320,6 @@ exports.getSlaDetails = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(`Error getting SLA details for ${name}:`, error);
-        res.status(500).json({ message: 'Gagal mengambil detail SLA.', error: error.message });
+        next(error);
     }
 };
